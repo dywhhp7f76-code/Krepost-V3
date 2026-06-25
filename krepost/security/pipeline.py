@@ -160,6 +160,35 @@ class TokenBucketRateLimiter:
             return False
 
 
+class SessionRateLimiter:
+    """Per-session rate limiter with automatic cleanup."""
+
+    def __init__(self, rate: int = DEFAULT_RATE_LIMIT, window: int = DEFAULT_RATE_WINDOW, max_sessions: int = 10000):
+        self.rate = rate
+        self.window = window
+        self.max_sessions = max_sessions
+        self._sessions: Dict[str, TokenBucketRateLimiter] = {}
+        self._last_access: Dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, session_id: str) -> bool:
+        with self._lock:
+            self._cleanup()
+            if session_id not in self._sessions:
+                self._sessions[session_id] = TokenBucketRateLimiter(self.rate, self.window)
+            self._last_access[session_id] = time.time()
+            return self._sessions[session_id].allow()
+
+    def _cleanup(self):
+        if len(self._sessions) <= self.max_sessions:
+            return
+        now = time.time()
+        expired = [sid for sid, last in self._last_access.items() if now - last > self.window * 2]
+        for sid in expired:
+            del self._sessions[sid]
+            del self._last_access[sid]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # CIRCUIT BREAKER
 # ═══════════════════════════════════════════════════════════════════════════
@@ -756,7 +785,7 @@ class SecurityPipeline:
 
         self.trust = TrustRegistry(trust_db_path)
 
-        self.rate_limiter = TokenBucketRateLimiter(rate=rate_limit)
+        self.rate_limiter = SessionRateLimiter(rate=rate_limit)
 
         self._lock = asyncio.Lock()
         self._closing = False
@@ -790,7 +819,7 @@ class SecurityPipeline:
 
     async def process(self, text: str, session_id: str) -> SecurityContext:
         """Обработать текст через все 4 слоя."""
-        if not self.rate_limiter.allow():
+        if not self.rate_limiter.allow(session_id):
             ctx = SecurityContext(session_id=session_id, user_input=text)
             ctx.is_compromised = True
             ctx.verdict = "RED"

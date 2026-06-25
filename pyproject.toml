@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools >= 68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "krepost"
+version = "2.2.0"
+description = "Krepost — 4-layer AI Security Pipeline with Smart Cache"
+requires-python = ">= 3.10"
+readme = "README.md"
+
+dependencies = [
+    "loguru",
+    "numpy",
+    "pydantic >= 2.0",
+    "sentence-transformers",
+    "chromadb",
+]
+
+[project.optional-dependencies]
+presidio = [
+    "presidio-analyzer",
+    "presidio-anonymizer",
+]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

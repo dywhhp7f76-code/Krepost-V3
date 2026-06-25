@@ -19,6 +19,7 @@ from krepost.security.pipeline import (
     PIIMasker,
     OutputFilter,
     TokenBucketRateLimiter,
+    SessionRateLimiter,
     CircuitBreaker,
     POLICY_VERSION,
 )
@@ -194,11 +195,9 @@ class TestRegexFilter:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestGuardClassifier:
-    def test_no_client_fail_closed(self):
+    async def test_no_client_fail_closed(self):
         gc = GuardClassifier(guard_client=None)
-        verdict, conf, reason = asyncio.get_event_loop().run_until_complete(
-            gc.classify("test")
-        )
+        verdict, conf, reason = await gc.classify("test")
         assert verdict == "RED"
         assert reason == "guard_unavailable_fail_closed"
 
