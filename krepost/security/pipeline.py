@@ -38,6 +38,12 @@ from krepost.security.normalize import canonicalize_for_hash, normalize_for_scan
 from krepost.security.trust_registry import TrustRegistry
 
 try:
+    from krepost.cache.SMART_CACHE import CacheLayer, SecurityVerdict as CacheVerdict
+except ImportError:
+    CacheLayer = None
+    CacheVerdict = None
+
+try:
     from loguru import logger
 except ImportError:
     import logging
@@ -180,13 +186,18 @@ class SessionRateLimiter:
             return self._sessions[session_id].allow()
 
     def _cleanup(self):
-        if len(self._sessions) <= self.max_sessions:
-            return
         now = time.time()
         expired = [sid for sid, last in self._last_access.items() if now - last > self.window * 2]
         for sid in expired:
-            del self._sessions[sid]
-            del self._last_access[sid]
+            self._sessions.pop(sid, None)
+            self._last_access.pop(sid, None)
+
+        if len(self._sessions) > self.max_sessions:
+            sorted_sessions = sorted(self._last_access.items(), key=lambda x: x[1])
+            to_remove = len(self._sessions) - self.max_sessions
+            for sid, _ in sorted_sessions[:to_remove]:
+                self._sessions.pop(sid, None)
+                self._last_access.pop(sid, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -211,6 +222,7 @@ class CircuitBreaker:
             elif self.state == "OPEN":
                 if time.time() - self.last_failure_time > self.recovery_timeout:
                     self.state = "HALF_OPEN"
+                    self.failure_count = 0
                     return True
                 return False
             else:
@@ -296,16 +308,16 @@ class RegexFilter:
         for decoder in (base64.b64decode, base64.urlsafe_b64decode):
             try:
                 raw = decoder(padded)
-                decoded = raw.decode("utf-8", errors="strict")
+                decoded = raw.decode("utf-8", errors="replace")
                 return self.normalize_text(decoded)
             except Exception:
                 continue
 
         return None
 
-    def check_base64_payloads(self, text: str, max_depth: int = 3) -> Tuple[bool, Optional[str]]:
+    def check_base64_payloads(self, text: str, max_depth: int = 10) -> Tuple[bool, Optional[str]]:
         """Рекурсивная проверка base64-encoded payloads."""
-        base64_pattern = re.compile(r"[A-Za-z0-9+/\-_]{16,500}={0,2}")
+        base64_pattern = re.compile(r"[A-Za-z0-9+/\-_]{8,}={0,2}")
 
         for match in base64_pattern.finditer(text):
             candidate = match.group()
@@ -329,6 +341,9 @@ class RegexFilter:
             return False, f"input_too_long:{len(text)}>{self.max_input_length}", text
 
         normalized = self.normalize_text(text)
+
+        if len(normalized) > self.max_input_length * 2:
+            return False, f"normalized_too_long:{len(normalized)}>{self.max_input_length*2}", normalized
 
         for pattern in self.compiled_patterns:
             if pattern.search(normalized):
@@ -395,14 +410,16 @@ class GuardClassifier:
                     return "RED", 0.0, "timeout_fail_closed"
 
             except (ConnectionError, OSError) as e:
+                logger.error(f"Guard connection error (attempt {attempt+1}): {e}")
                 if attempt == self.max_retries:
                     self.circuit_breaker.record_failure()
-                    return "RED", 0.0, f"connection_error:{e}"
+                    return "RED", 0.0, "connection_error_fail_closed"
 
             except Exception as e:
+                logger.error(f"Guard unexpected error (attempt {attempt+1}): {e}")
                 if attempt == self.max_retries:
                     self.circuit_breaker.record_failure()
-                    return "RED", 0.0, f"unexpected_error:{e}"
+                    return "RED", 0.0, "unexpected_error_fail_closed"
 
         return "RED", 0.0, "unknown_fail_closed"
 
@@ -596,7 +613,8 @@ class FewShotMatcher:
             return len(similar_examples) > 0, similar_examples, None
 
         except Exception as e:
-            return True, [], f"fewshot_error:{e}"
+            logger.error(f"FewShot matching error: {e}")
+            return True, [], "fewshot_error_fail_closed"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -775,6 +793,8 @@ class SecurityPipeline:
         chroma_collection=None,
         trust_db_path: Path = Path("data/trust_registry.db"),
         rate_limit: int = DEFAULT_RATE_LIMIT,
+        cache_dir: Path = Path("data/cache"),
+        enable_cache: bool = False,
     ):
         self.layer1 = RegexFilter()
         self.layer2 = GuardClassifier(guard_client, prompt_template="input")
@@ -786,6 +806,15 @@ class SecurityPipeline:
         self.trust = TrustRegistry(trust_db_path)
 
         self.rate_limiter = SessionRateLimiter(rate=rate_limit)
+
+        self.cache = None
+        if enable_cache and CacheLayer is not None:
+            try:
+                self.cache = CacheLayer(cache_dir=cache_dir)
+                logger.info("SMART_CACHE integrated into pipeline")
+            except Exception as e:
+                logger.warning(f"SMART_CACHE init failed, running without cache: {e}")
+                self.cache = None
 
         self._lock = asyncio.Lock()
         self._closing = False
@@ -859,6 +888,19 @@ class SecurityPipeline:
                     ctx.attack_vector = f"Direct Injection: {pattern}"
                     return await self._finalize(ctx, layer_verdicts, start_time)
 
+                # Cache L2: semantic match (skip layers 2-3 on hit)
+                if self.cache is not None:
+                    try:
+                        l2_entry = await self.cache.get_l2(normalized)
+                        if l2_entry is not None:
+                            ctx.verdict = "GREEN"
+                            ctx.processed_input = normalized
+                            ctx.metadata["cache_hit"] = "L2_semantic"
+                            layer_verdicts.append({"layer": "Cache-L2-Hit", "verdict": "GREEN"})
+                            return await self._finalize(ctx, layer_verdicts, start_time)
+                    except Exception as e:
+                        logger.warning(f"L2 cache lookup failed: {e}")
+
                 # Layer 2: Guard
                 layer2_start = time.perf_counter()
                 verdict, confidence, reason = await self.layer2.classify(normalized)
@@ -903,13 +945,27 @@ class SecurityPipeline:
                             return await self._finalize(ctx, layer_verdicts, start_time)
 
                 ctx.processed_input = normalized
+
+                # Cache L2: store GREEN verdict for future semantic matches
+                if self.cache is not None and ctx.verdict == "GREEN" and CacheVerdict is not None:
+                    try:
+                        await self.cache.put_l2(
+                            query=normalized,
+                            chunks=[],
+                            source_notes=[],
+                            verdict=CacheVerdict.GREEN,
+                        )
+                    except Exception as e:
+                        logger.warning(f"L2 cache store failed: {e}")
+
                 return await self._finalize(ctx, layer_verdicts, start_time)
 
             except Exception as e:
+                logger.error(f"Pipeline processing error: {e}")
                 ctx.is_compromised = True
                 ctx.verdict = "RED"
                 ctx.violation_layer = "PipelineError"
-                ctx.attack_vector = str(e)
+                ctx.attack_vector = "pipeline_error_fail_closed"
                 return await self._finalize(ctx, layer_verdicts, start_time)
 
     async def process_output(self, ctx: SecurityContext) -> SecurityContext:
@@ -1010,3 +1066,13 @@ class SecurityPipeline:
         """Graceful shutdown."""
         async with self._lock:
             self._closing = True
+            if hasattr(self, 'cache') and self.cache is not None:
+                try:
+                    self.cache.close()
+                except Exception as e:
+                    logger.error(f"Cache close failed: {e}")
+            if self.layer3 is not None and hasattr(self.layer3, 'close'):
+                try:
+                    self.layer3.close()
+                except Exception as e:
+                    logger.error(f"Layer3 close failed: {e}")

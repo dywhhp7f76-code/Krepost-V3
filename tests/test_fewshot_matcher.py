@@ -213,7 +213,7 @@ class TestFewShotMatcher:
         blocked, matches, reason = await matcher.match("test")
         assert blocked is True
         assert matches == []
-        assert "fewshot_error:" in reason
+        assert "fewshot_error" in reason
 
     # ------------------------------------------------------------------
     # 7. ChromaDB query error -> fail-closed
@@ -230,7 +230,7 @@ class TestFewShotMatcher:
         blocked, matches, reason = await matcher.match("test")
         assert blocked is True
         assert matches == []
-        assert "fewshot_error:" in reason
+        assert "fewshot_error" in reason
 
     # ------------------------------------------------------------------
     # 8. LRU cache hit
