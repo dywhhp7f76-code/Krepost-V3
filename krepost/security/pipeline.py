@@ -289,7 +289,7 @@ class RegexFilter:
     def __init__(self, max_input_length: int = 32000):
         self.max_input_length = max_input_length
         self.compiled_patterns = [
-            re.compile(pattern, re.IGNORECASE)
+            re.compile(normalize_for_scanning(pattern, soft=False), re.IGNORECASE)
             for pattern in self.INJECTION_PATTERNS
         ]
         self.chat_template_patterns = [
@@ -302,14 +302,14 @@ class RegexFilter:
         return normalize_for_scanning(text, soft=False)
 
     def _decode_b64_candidate(self, s: str) -> Optional[str]:
-        """Безопасное декодирование base64."""
+        """Безопасное декодирование base64 (без нормализации — сохраняет case для рекурсии)."""
         padded = s + "=" * (-len(s) % 4)
 
         for decoder in (base64.b64decode, base64.urlsafe_b64decode):
             try:
                 raw = decoder(padded)
                 decoded = raw.decode("utf-8", errors="replace")
-                return self.normalize_text(decoded)
+                return decoded
             except Exception:
                 continue
 
@@ -327,8 +327,9 @@ class RegexFilter:
                 if not decoded:
                     break
 
+                normalized_decoded = self.normalize_text(decoded)
                 for pattern in self.compiled_patterns:
-                    if pattern.search(decoded):
+                    if pattern.search(normalized_decoded):
                         return True, f"depth={depth+1}:{decoded[:100]}"
 
                 candidate = decoded
@@ -350,7 +351,7 @@ class RegexFilter:
                 return False, pattern.pattern, normalized
 
         for pattern in self.chat_template_patterns:
-            if pattern.search(normalized):
+            if pattern.search(text):
                 return False, f"chat_template:{pattern.pattern}", normalized
 
         is_b64_malicious, decoded_payload = self.check_base64_payloads(text)
