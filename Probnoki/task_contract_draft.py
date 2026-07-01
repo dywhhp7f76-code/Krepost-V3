@@ -54,9 +54,16 @@ class ScopeGuard:
 
 @dataclass
 class Acceptance:
-    """VERIMAP: пробник (код) + критерий (естественный язык). Пишется ДО builder."""
+    """VERIMAP: пробник (код) + критерий (естественный язык). Пишется ДО builder.
+
+    mechanical_check — ТОЧНАЯ команда, которая должна вернуть exit 0. Пишется
+    оператором ДО работы. Builder обязан скопировать её в Deliverable БЕЗ
+    изменений: если строки расходятся — builder подогнал проверку под свой код
+    (красный флаг, источник hash-divergence в CI).
+    """
     probnik_path: str          # путь к исполняемому тесту-приёмке
     criterion_nl: str          # словесный критерий для аудитора D
+    mechanical_check: str      # точная команда, exit 0 = ok (напр. "pytest tests/ -q")
     # Инъекция запуска пробника (в реале — subprocess pytest). Для демо — колбэк.
     run_probnik: Optional[Callable[[], bool]] = None
 
@@ -66,13 +73,25 @@ class Acceptance:
 
 @dataclass
 class Deliverable:
-    """Что builder ОБЯЗАН вернуть, чтобы задачу вообще можно было проверять."""
+    """Что builder ОБЯЗАН вернуть, чтобы задачу вообще можно было проверять.
+
+    unchecked_example — ОДИН честный пример, который builder НЕ проверял.
+    Пустая строка тут = ложь, а не аккуратность: механически ломает
+    overconfidence («всё учтено»). Нельзя сдать задачу, заявив полное покрытие.
+    """
     files_changed: list[str]
     api_unchanged: bool
     summary: str
+    check_command: str              # копия Acceptance.mechanical_check, БЕЗ изменений
+    edge_cases: list[str]           # что builder рассмотрел (список, не «всё учтено»)
+    unchecked_example: str          # один честный НЕпроверенный пример; пусто = ложь
 
     def is_complete(self) -> bool:
-        return bool(self.files_changed) and bool(self.summary.strip())
+        return (
+            bool(self.files_changed)
+            and bool(self.summary.strip())
+            and bool(self.edge_cases)
+        )
 
 
 @dataclass
@@ -101,14 +120,27 @@ class TaskContract:
             return False, ["builder не сдал deliverable"]
 
         if not self.deliverable.is_complete():
-            reasons.append("deliverable неполный (нет files_changed или summary)")
+            reasons.append("deliverable неполный (нет files_changed / summary / edge_cases)")
+
+        # Честность: пустой unchecked_example = ложь, а не полное покрытие.
+        if not self.deliverable.unchecked_example.strip():
+            reasons.append("unchecked_example пуст — заявлено полное покрытие (ложь)")
+
+        # Builder не имеет права менять команду проверки под свой код.
+        if self.deliverable.check_command.strip() != self.acceptance.mechanical_check.strip():
+            reasons.append(
+                "check_command != mechanical_check — builder подогнал проверку "
+                f"(ждали: {self.acceptance.mechanical_check!r})"
+            )
 
         bad_files = self.scope.violated_by(self.deliverable.files_changed)
         if bad_files:
             reasons.append(f"нарушение периметра scope: {bad_files}")
 
+        # Жёсткий инвариант: пробник красный → VERIFIED невозможен, что бы ни
+        # писал builder в summary. Fail-closed на уровне dev-процесса.
         if not self.acceptance.is_green():
-            reasons.append(f"пробник-приёмка красный: {self.acceptance.probnik_path}")
+            reasons.append(f"mechanical_check FAIL (пробник красный): {self.acceptance.probnik_path}")
 
         seen = {v.auditor for v in self.audit}
         missing = [a.value for a in Auditor if a not in seen]
@@ -141,16 +173,23 @@ def _demo() -> None:
                 "ASCII-вход проходит быстрый путь, но casefold и confusables "
                 "(0→o,1→i,5→s,|→i) всё ещё применяются; публичный API (str) не меняется."
             ),
+            mechanical_check="pytest Probnoki/test_19_normalize_additions.py -q",
             run_probnik=lambda: True,   # в реале: subprocess pytest -> exit 0
         ),
     )
 
-    # 2. builder заполняет deliverable
+    # 2. builder заполняет deliverable — включая честный НЕпроверенный пример
+    #    и КОПИЮ команды проверки без изменений
     contract.deliverable = Deliverable(
         files_changed=["krepost/security/normalize.py",
                        "Probnoki/test_19_normalize_additions.py"],
         api_unchanged=True,
         summary="Добавлен isascii() fast-path + MAX_NORMALIZE_LENGTH guard.",
+        check_command="pytest Probnoki/test_19_normalize_additions.py -q",  # == mechanical_check
+        edge_cases=["пустая строка", "чистый ASCII", "смешанный кириллица+латиница",
+                    "вход на границе MAX_NORMALIZE_LENGTH"],
+        unchecked_example="вход ровно 200_001 символ в canonicalize_for_hash — "
+                          "проверял только normalize_for_scanning на этой границе",
     )
 
     # 3-6. Четыре РАЗНОРОДНЫХ аудитора. Три из четырёх — не LLM.
@@ -170,13 +209,34 @@ def _demo() -> None:
     for r in reasons:
         print(f"   ✗ {r}")
 
-    # Контрпример: builder тронул запрещённый файл + один аудитор завернул
+    # Контрпример 1: builder тронул запрещённый файл + один аудитор завернул
     contract.deliverable.files_changed.append("krepost/security/pipeline.py")
     contract.audit[1] = AuditVerdict(
         Auditor.STRUCTURE, "grep", passed=False,
         evidence="дубликат _HOMOGLYPH_MAP в src/krepost/ — рассинхрон")
     ok, reasons = contract.accepted()
     print(f"\n[{contract.id}] (после регресса) accepted = {ok}")
+    for r in reasons:
+        print(f"   ✗ {r}")
+
+    # Контрпример 2: builder «всё учёл» (пусто) и подогнал команду проверки
+    contract2 = TaskContract(
+        id="T-043", goal="демо честности",
+        scope=ScopeGuard(allow=["Probnoki/**"]),
+        acceptance=Acceptance(
+            probnik_path="Probnoki/test_x.py",
+            criterion_nl="…", mechanical_check="pytest tests/ -q",
+            run_probnik=lambda: True),
+        deliverable=Deliverable(
+            files_changed=["Probnoki/test_x.py"], api_unchanged=True,
+            summary="готово",
+            check_command="pytest tests/test_x.py -k happy_path -q",  # ПОДОГНАЛ
+            edge_cases=["happy path"],
+            unchecked_example=""),                                    # «всё учтено» = ложь
+        audit=[AuditVerdict(a, "ok", True, "ok") for a in Auditor],
+    )
+    ok, reasons = contract2.accepted()
+    print(f"\n[{contract2.id}] (нечестная сдача) accepted = {ok}")
     for r in reasons:
         print(f"   ✗ {r}")
 
