@@ -329,12 +329,12 @@ class TestFewShotMatcher:
         assert matcher.collection is collection
 
     # ------------------------------------------------------------------
-    # 11. Empty DB results -> fail-closed
+    # 11. Empty DB = cold start (passes); malformed response = fail-closed
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_empty_distances_fail_closed(self):
-        """Empty distances list -> fail-closed."""
+    async def test_empty_db_passes_cold_start(self):
+        """Empty distances list = cold start, NOT an error: must pass."""
         embedder = _mock_embedder()
         collection = MagicMock()
         collection.metadata = {"hnsw:space": "cosine"}
@@ -345,13 +345,13 @@ class TestFewShotMatcher:
         })
         matcher = FewShotMatcher(embedder=embedder, chroma_collection=collection)
         blocked, matches, reason = await matcher.match("test")
-        assert blocked is True
+        assert blocked is False
         assert matches == []
-        assert reason == "fewshot_empty_db_fail_closed"
+        assert reason is None
 
     @pytest.mark.asyncio
     async def test_no_distances_key_fail_closed(self):
-        """Missing distances key -> fail-closed."""
+        """Missing distances key = malformed response -> fail-closed."""
         embedder = _mock_embedder()
         collection = MagicMock()
         collection.metadata = {"hnsw:space": "cosine"}
@@ -360,11 +360,11 @@ class TestFewShotMatcher:
         blocked, matches, reason = await matcher.match("test")
         assert blocked is True
         assert matches == []
-        assert reason == "fewshot_empty_db_fail_closed"
+        assert reason == "fewshot_invalid_response_fail_closed"
 
     @pytest.mark.asyncio
     async def test_none_results_fail_closed(self):
-        """None results -> fail-closed."""
+        """None results = malformed response -> fail-closed."""
         embedder = _mock_embedder()
         collection = MagicMock()
         collection.metadata = {"hnsw:space": "cosine"}
@@ -374,7 +374,7 @@ class TestFewShotMatcher:
         assert blocked is True
         assert matches == []
         # None results triggers `not results` check
-        assert reason == "fewshot_empty_db_fail_closed"
+        assert reason == "fewshot_invalid_response_fail_closed"
 
     # ------------------------------------------------------------------
     # 12. Async embedder support

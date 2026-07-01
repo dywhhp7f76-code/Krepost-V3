@@ -574,7 +574,10 @@ class FewShotMatcher:
 
         try:
             cached = self._get_cached_embedding(text)
-            if cached:
+            # `is not None`, а не truthiness: np.ndarray в if кидает ValueError
+            # ("truth value of an array is ambiguous") -> fail-closed на каждом
+            # повторном запросе с закэшированным эмбеддингом.
+            if cached is not None:
                 embedding = cached
             else:
                 if asyncio.iscoroutinefunction(self.embedder.encode):
@@ -594,8 +597,15 @@ class FewShotMatcher:
                 timeout=2.0
             )
 
-            if not results or not results.get("distances") or not results["distances"][0]:
-                return True, [], "fewshot_empty_db_fail_closed"
+            if not results or not results.get("distances"):
+                # Ответ без структуры (None / нет ключа) — реальная аномалия
+                return True, [], "fewshot_invalid_response_fail_closed"
+
+            if not results["distances"][0]:
+                # Пустая few-shot БД — штатный холодный старт, НЕ ошибка:
+                # иначе система блокирует все запросы до первого примера.
+                logger.warning("FewShot DB is empty — matcher passes (cold start)")
+                return False, [], None
 
             similar_examples = []
             for i, distance in enumerate(results["distances"][0]):
@@ -857,153 +867,161 @@ class SecurityPipeline:
             ctx.attack_vector = "rate_limit_exceeded"
             return ctx
 
+        # Lock только на проверку _closing: сам пайплайн работает конкурентно
+        # (Guard может занимать секунды на запрос — глобальная сериализация
+        # всех сессий недопустима). Shared-state защищён _metrics_lock и
+        # собственными локами компонентов.
         async with self._lock:
             if self._closing:
                 raise RuntimeError("Pipeline is closed")
 
-            start_time = time.perf_counter()
-            ctx = SecurityContext(session_id=session_id, user_input=text)
-            layer_verdicts = []
+        start_time = time.perf_counter()
+        ctx = SecurityContext(session_id=session_id, user_input=text)
+        layer_verdicts = []
 
-            try:
-                # TrustRegistry fast-path
-                if await self.trust.is_trusted(text):
-                    ctx.verdict = "GREEN"
-                    ctx.metadata["trusted"] = True
-                    return await self._finalize(ctx, layer_verdicts, start_time)
+        try:
+            # TrustRegistry fast-path
+            if await self.trust.is_trusted(text):
+                ctx.verdict = "GREEN"
+                ctx.metadata["trusted"] = True
+                return await self._finalize(ctx, layer_verdicts, start_time)
 
-                # Layer 1: Regex
-                layer1_start = time.perf_counter()
-                is_safe, pattern, normalized = await asyncio.to_thread(self.layer1.check, text)
-                layer1_time = (time.perf_counter() - layer1_start) * 1000
+            # Layer 1: Regex
+            layer1_start = time.perf_counter()
+            is_safe, pattern, normalized = await asyncio.to_thread(self.layer1.check, text)
+            layer1_time = (time.perf_counter() - layer1_start) * 1000
 
-                ctx.normalized_input = normalized
-                ctx.metadata["layer1_time_ms"] = layer1_time
+            ctx.normalized_input = normalized
+            ctx.metadata["layer1_time_ms"] = layer1_time
 
-                layer_verdicts.append({"layer": "Layer1-Regex", "passed": is_safe, "time_ms": layer1_time})
+            layer_verdicts.append({"layer": "Layer1-Regex", "passed": is_safe, "time_ms": layer1_time})
 
-                if not is_safe:
+            if not is_safe:
+                ctx.is_compromised = True
+                ctx.verdict = "RED"
+                ctx.violation_layer = "Layer1-Regex"
+                ctx.attack_vector = f"Direct Injection: {pattern}"
+                return await self._finalize(ctx, layer_verdicts, start_time)
+
+            # Cache L2: semantic match (skip layers 2-3 on hit)
+            if self.cache is not None:
+                try:
+                    l2_entry = await self.cache.get_l2(normalized)
+                    if l2_entry is not None:
+                        ctx.verdict = "GREEN"
+                        ctx.processed_input = normalized
+                        ctx.metadata["cache_hit"] = "L2_semantic"
+                        layer_verdicts.append({"layer": "Cache-L2-Hit", "verdict": "GREEN"})
+                        return await self._finalize(ctx, layer_verdicts, start_time)
+                except Exception as e:
+                    logger.warning(f"L2 cache lookup failed: {e}")
+
+            # Layer 2: Guard
+            layer2_start = time.perf_counter()
+            verdict, confidence, reason = await self.layer2.classify(normalized)
+            layer2_time = (time.perf_counter() - layer2_start) * 1000
+
+            ctx.metadata["layer2_time_ms"] = layer2_time
+            layer_verdicts.append({"layer": "Layer2-Guard", "verdict": verdict, "time_ms": layer2_time})
+
+            if verdict in ("RED", "YELLOW"):
+                ctx.is_compromised = True
+                ctx.verdict = verdict
+                ctx.violation_layer = "Layer2-Guard"
+                ctx.attack_vector = f"Guard non-green: {reason}"
+                return await self._finalize(ctx, layer_verdicts, start_time)
+
+            ctx.verdict = verdict
+            ctx.confidence = confidence
+
+            # Layer 3: Few-shot
+            if self.layer3:
+                layer3_start = time.perf_counter()
+                is_match, matches, error = await self.layer3.match(normalized)
+                layer3_time = (time.perf_counter() - layer3_start) * 1000
+
+                ctx.metadata["layer3_time_ms"] = layer3_time
+                layer_verdicts.append({"layer": "Layer3-FewShot", "matched": is_match, "time_ms": layer3_time})
+
+                if error:
                     ctx.is_compromised = True
                     ctx.verdict = "RED"
-                    ctx.violation_layer = "Layer1-Regex"
-                    ctx.attack_vector = f"Direct Injection: {pattern}"
+                    ctx.violation_layer = "Layer3-FewShot"
+                    ctx.attack_vector = error
                     return await self._finalize(ctx, layer_verdicts, start_time)
 
-                # Cache L2: semantic match (skip layers 2-3 on hit)
-                if self.cache is not None:
-                    try:
-                        l2_entry = await self.cache.get_l2(normalized)
-                        if l2_entry is not None:
-                            ctx.verdict = "GREEN"
-                            ctx.processed_input = normalized
-                            ctx.metadata["cache_hit"] = "L2_semantic"
-                            layer_verdicts.append({"layer": "Cache-L2-Hit", "verdict": "GREEN"})
-                            return await self._finalize(ctx, layer_verdicts, start_time)
-                    except Exception as e:
-                        logger.warning(f"L2 cache lookup failed: {e}")
-
-                # Layer 2: Guard
-                layer2_start = time.perf_counter()
-                verdict, confidence, reason = await self.layer2.classify(normalized)
-                layer2_time = (time.perf_counter() - layer2_start) * 1000
-
-                ctx.metadata["layer2_time_ms"] = layer2_time
-                layer_verdicts.append({"layer": "Layer2-Guard", "verdict": verdict, "time_ms": layer2_time})
-
-                if verdict in ("RED", "YELLOW"):
-                    ctx.is_compromised = True
-                    ctx.verdict = verdict
-                    ctx.violation_layer = "Layer2-Guard"
-                    ctx.attack_vector = f"Guard non-green: {reason}"
-                    return await self._finalize(ctx, layer_verdicts, start_time)
-
-                ctx.verdict = verdict
-                ctx.confidence = confidence
-
-                # Layer 3: Few-shot
-                if self.layer3:
-                    layer3_start = time.perf_counter()
-                    is_match, matches, error = await self.layer3.match(normalized)
-                    layer3_time = (time.perf_counter() - layer3_start) * 1000
-
-                    ctx.metadata["layer3_time_ms"] = layer3_time
-                    layer_verdicts.append({"layer": "Layer3-FewShot", "matched": is_match, "time_ms": layer3_time})
-
-                    if error:
+                if is_match:
+                    red_matches = [m for m in matches if m["label"] == "RED"]
+                    if red_matches:
                         ctx.is_compromised = True
                         ctx.verdict = "RED"
                         ctx.violation_layer = "Layer3-FewShot"
-                        ctx.attack_vector = error
+                        ctx.attack_vector = "Few-shot RED match"
                         return await self._finalize(ctx, layer_verdicts, start_time)
 
-                    if is_match:
-                        red_matches = [m for m in matches if m["label"] == "RED"]
-                        if red_matches:
-                            ctx.is_compromised = True
-                            ctx.verdict = "RED"
-                            ctx.violation_layer = "Layer3-FewShot"
-                            ctx.attack_vector = "Few-shot RED match"
-                            return await self._finalize(ctx, layer_verdicts, start_time)
+            ctx.processed_input = normalized
 
-                ctx.processed_input = normalized
+            # Cache L2: store GREEN verdict for future semantic matches
+            if self.cache is not None and ctx.verdict == "GREEN" and CacheVerdict is not None:
+                try:
+                    await self.cache.put_l2(
+                        query=normalized,
+                        chunks=[],
+                        source_notes=[],
+                        verdict=CacheVerdict.GREEN,
+                    )
+                except Exception as e:
+                    logger.warning(f"L2 cache store failed: {e}")
 
-                # Cache L2: store GREEN verdict for future semantic matches
-                if self.cache is not None and ctx.verdict == "GREEN" and CacheVerdict is not None:
-                    try:
-                        await self.cache.put_l2(
-                            query=normalized,
-                            chunks=[],
-                            source_notes=[],
-                            verdict=CacheVerdict.GREEN,
-                        )
-                    except Exception as e:
-                        logger.warning(f"L2 cache store failed: {e}")
+            return await self._finalize(ctx, layer_verdicts, start_time)
 
-                return await self._finalize(ctx, layer_verdicts, start_time)
-
-            except Exception as e:
-                logger.error(f"Pipeline processing error: {e}")
-                ctx.is_compromised = True
-                ctx.verdict = "RED"
-                ctx.violation_layer = "PipelineError"
-                ctx.attack_vector = "pipeline_error_fail_closed"
-                return await self._finalize(ctx, layer_verdicts, start_time)
+        except Exception as e:
+            logger.error(f"Pipeline processing error: {e}")
+            ctx.is_compromised = True
+            ctx.verdict = "RED"
+            ctx.violation_layer = "PipelineError"
+            ctx.attack_vector = "pipeline_error_fail_closed"
+            return await self._finalize(ctx, layer_verdicts, start_time)
 
     async def process_output(self, ctx: SecurityContext) -> SecurityContext:
         """Обработать вывод модели (Layer 4)."""
+        # Lock только на проверку _closing: сам пайплайн работает конкурентно
+        # (Guard может занимать секунды на запрос — глобальная сериализация
+        # всех сессий недопустима). Shared-state защищён _metrics_lock и
+        # собственными локами компонентов.
         async with self._lock:
             if self._closing:
                 raise RuntimeError("Pipeline is closed")
 
-            if ctx.is_compromised:
-                ctx.ai_output = "Доступ заблокирован."
-                return ctx
+        if ctx.is_compromised:
+            ctx.ai_output = "Доступ заблокирован."
+            return ctx
 
-            try:
-                layer4_start = time.perf_counter()
-                processed_output, is_harmful, reason = await self.layer4.filter(ctx.ai_output)
-                layer4_time = (time.perf_counter() - layer4_start) * 1000
+        try:
+            layer4_start = time.perf_counter()
+            processed_output, is_harmful, reason = await self.layer4.filter(ctx.ai_output)
+            layer4_time = (time.perf_counter() - layer4_start) * 1000
 
-                ctx.metadata["layer4_time_ms"] = layer4_time
+            ctx.metadata["layer4_time_ms"] = layer4_time
 
-                if is_harmful:
-                    ctx.is_compromised = True
-                    ctx.verdict = "RED"
-                    ctx.violation_layer = "Layer4-OutputFilter"
-                    ctx.attack_vector = f"Output Filter: {reason}"
-                    ctx.ai_output = processed_output
-                else:
-                    ctx.ai_output = processed_output
-
-                return ctx
-
-            except Exception as e:
+            if is_harmful:
                 ctx.is_compromised = True
                 ctx.verdict = "RED"
                 ctx.violation_layer = "Layer4-OutputFilter"
-                ctx.attack_vector = f"Layer4 exception: {e}"
-                ctx.ai_output = "[ДАННЫЕ ЗАБЛОКИРОВАНЫ]"
-                return ctx
+                ctx.attack_vector = f"Output Filter: {reason}"
+                ctx.ai_output = processed_output
+            else:
+                ctx.ai_output = processed_output
+
+            return ctx
+
+        except Exception as e:
+            ctx.is_compromised = True
+            ctx.verdict = "RED"
+            ctx.violation_layer = "Layer4-OutputFilter"
+            ctx.attack_vector = f"Layer4 exception: {e}"
+            ctx.ai_output = "[ДАННЫЕ ЗАБЛОКИРОВАНЫ]"
+            return ctx
 
     async def process_document(self, content: str, metadata: Dict[str, Any], session_id: str) -> SecurityContext:
         """Обработать загруженный документ перед индексацией."""
