@@ -10,10 +10,15 @@ krepost/security/normalize.py v2.2
 
 import re
 import unicodedata
-from typing import Dict
 
 # Версия нормализации (P2 #30)
 NORMALIZATION_VERSION = "2.2.0"
+
+# Максимальная длина текста для normalize.py-функций (defense-in-depth;
+# pipeline.py.RegexFilter имеет собственный, более строгий лимит 32000,
+# проверяемый раньше — этот лимит защищает прямых вызывающих, например
+# trust_registry.py, у которых своей проверки длины нет).
+MAX_NORMALIZE_LENGTH = 200_000
 
 # Расширенная таблица гомоглифов (P1 #37, P2 #37)
 _HOMOGLYPH_MAP = str.maketrans({
@@ -36,6 +41,9 @@ _HOMOGLYPH_MAP = str.maketrans({
     "0": "o", "1": "i", "5": "s",
     "|": "i",
 })
+# Примечание: full-width формы (Ａ-Ｚ, ａ-ｚ, ０-９, U+FF00-FFEF) отдельно
+# не маппятся — NFKC-нормализация (шаг 2 ниже) уже разворачивает их в
+# обычный ASCII до применения этой таблицы, добавлять их сюда избыточно.
 
 # Zero-width + BiDi + NBSP (P2 #37)
 _ZERO_WIDTH = dict.fromkeys([
@@ -77,6 +85,19 @@ def canonicalize_for_hash(text: str) -> str:
     if not text:
         return ""
 
+    if len(text) > MAX_NORMALIZE_LENGTH:
+        raise ValueError(f"input_too_long:{len(text)}>{MAX_NORMALIZE_LENGTH}")
+
+    # ASCII fast-path: zero-width/BiDi/NBSP и NFKC — no-op на чистом ASCII,
+    # их можно безопасно пропустить. Casefold и confusables (включая
+    # цифровые "0"/"1"/"5"/"|") по-прежнему применяются — они влияют
+    # на чистый ASCII текст (leetspeak, chat-template обход).
+    if text.isascii():
+        t = text.casefold()
+        t = t.translate(_HOMOGLYPH_MAP)
+        t = re.sub(r"\s+", " ", t).strip()
+        return t
+
     # 1. Zero-width + BiDi + NBSP removal
     t = text.translate(_ZERO_WIDTH)
 
@@ -109,6 +130,19 @@ def normalize_for_scanning(text: str, soft: bool = False) -> str:
     """
     if not text:
         return ""
+
+    if len(text) > MAX_NORMALIZE_LENGTH:
+        raise ValueError(f"input_too_long:{len(text)}>{MAX_NORMALIZE_LENGTH}")
+
+    # ASCII fast-path: см. canonicalize_for_hash — zero-width/BiDi/NBSP и
+    # NFKC являются no-op на чистом ASCII, остальные шаги выполняются как
+    # обычно (confusables всё ещё нужны для цифрового leetspeak на ASCII).
+    if text.isascii():
+        t = text.casefold()
+        if not soft:
+            t = t.translate(_HOMOGLYPH_MAP)
+        t = re.sub(r"\s+", " ", t).strip()
+        return t
 
     # 1. Zero-width removal
     t = text.translate(_ZERO_WIDTH)

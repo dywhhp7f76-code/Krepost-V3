@@ -22,7 +22,6 @@ import asyncio
 import hashlib
 import time
 import base64
-import unicodedata
 import threading
 import json
 import secrets
@@ -30,12 +29,17 @@ import ipaddress
 from typing import Dict, Any, List, Optional, Tuple, Literal, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from collections import OrderedDict
 from pathlib import Path
 
 from krepost.security.normalize import canonicalize_for_hash, normalize_for_scanning, NORMALIZATION_VERSION
 from krepost.security.trust_registry import TrustRegistry
+
+try:
+    from krepost.cache.SMART_CACHE import CacheLayer, SecurityVerdict as CacheVerdict
+except ImportError:
+    CacheLayer = None
+    CacheVerdict = None
 
 try:
     from loguru import logger
@@ -180,13 +184,18 @@ class SessionRateLimiter:
             return self._sessions[session_id].allow()
 
     def _cleanup(self):
-        if len(self._sessions) <= self.max_sessions:
-            return
         now = time.time()
         expired = [sid for sid, last in self._last_access.items() if now - last > self.window * 2]
         for sid in expired:
-            del self._sessions[sid]
-            del self._last_access[sid]
+            self._sessions.pop(sid, None)
+            self._last_access.pop(sid, None)
+
+        if len(self._sessions) > self.max_sessions:
+            sorted_sessions = sorted(self._last_access.items(), key=lambda x: x[1])
+            to_remove = len(self._sessions) - self.max_sessions
+            for sid, _ in sorted_sessions[:to_remove]:
+                self._sessions.pop(sid, None)
+                self._last_access.pop(sid, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -211,6 +220,7 @@ class CircuitBreaker:
             elif self.state == "OPEN":
                 if time.time() - self.last_failure_time > self.recovery_timeout:
                     self.state = "HALF_OPEN"
+                    self.failure_count = 0
                     return True
                 return False
             else:
@@ -277,7 +287,7 @@ class RegexFilter:
     def __init__(self, max_input_length: int = 32000):
         self.max_input_length = max_input_length
         self.compiled_patterns = [
-            re.compile(pattern, re.IGNORECASE)
+            re.compile(normalize_for_scanning(pattern, soft=False), re.IGNORECASE)
             for pattern in self.INJECTION_PATTERNS
         ]
         self.chat_template_patterns = [
@@ -290,22 +300,22 @@ class RegexFilter:
         return normalize_for_scanning(text, soft=False)
 
     def _decode_b64_candidate(self, s: str) -> Optional[str]:
-        """Безопасное декодирование base64."""
+        """Безопасное декодирование base64 (без нормализации — сохраняет case для рекурсии)."""
         padded = s + "=" * (-len(s) % 4)
 
         for decoder in (base64.b64decode, base64.urlsafe_b64decode):
             try:
                 raw = decoder(padded)
-                decoded = raw.decode("utf-8", errors="strict")
-                return self.normalize_text(decoded)
+                decoded = raw.decode("utf-8", errors="replace")
+                return decoded
             except Exception:
                 continue
 
         return None
 
-    def check_base64_payloads(self, text: str, max_depth: int = 3) -> Tuple[bool, Optional[str]]:
+    def check_base64_payloads(self, text: str, max_depth: int = 10) -> Tuple[bool, Optional[str]]:
         """Рекурсивная проверка base64-encoded payloads."""
-        base64_pattern = re.compile(r"[A-Za-z0-9+/\-_]{16,500}={0,2}")
+        base64_pattern = re.compile(r"[A-Za-z0-9+/\-_]{8,}={0,2}")
 
         for match in base64_pattern.finditer(text):
             candidate = match.group()
@@ -315,8 +325,9 @@ class RegexFilter:
                 if not decoded:
                     break
 
+                normalized_decoded = self.normalize_text(decoded)
                 for pattern in self.compiled_patterns:
-                    if pattern.search(decoded):
+                    if pattern.search(normalized_decoded):
                         return True, f"depth={depth+1}:{decoded[:100]}"
 
                 candidate = decoded
@@ -330,12 +341,15 @@ class RegexFilter:
 
         normalized = self.normalize_text(text)
 
+        if len(normalized) > self.max_input_length * 2:
+            return False, f"normalized_too_long:{len(normalized)}>{self.max_input_length*2}", normalized
+
         for pattern in self.compiled_patterns:
             if pattern.search(normalized):
                 return False, pattern.pattern, normalized
 
         for pattern in self.chat_template_patterns:
-            if pattern.search(normalized):
+            if pattern.search(text):
                 return False, f"chat_template:{pattern.pattern}", normalized
 
         is_b64_malicious, decoded_payload = self.check_base64_payloads(text)
@@ -395,14 +409,16 @@ class GuardClassifier:
                     return "RED", 0.0, "timeout_fail_closed"
 
             except (ConnectionError, OSError) as e:
+                logger.error(f"Guard connection error (attempt {attempt+1}): {e}")
                 if attempt == self.max_retries:
                     self.circuit_breaker.record_failure()
-                    return "RED", 0.0, f"connection_error:{e}"
+                    return "RED", 0.0, "connection_error_fail_closed"
 
             except Exception as e:
+                logger.error(f"Guard unexpected error (attempt {attempt+1}): {e}")
                 if attempt == self.max_retries:
                     self.circuit_breaker.record_failure()
-                    return "RED", 0.0, f"unexpected_error:{e}"
+                    return "RED", 0.0, "unexpected_error_fail_closed"
 
         return "RED", 0.0, "unknown_fail_closed"
 
@@ -556,7 +572,10 @@ class FewShotMatcher:
 
         try:
             cached = self._get_cached_embedding(text)
-            if cached:
+            # `is not None`, а не truthiness: np.ndarray в if кидает ValueError
+            # ("truth value of an array is ambiguous") -> fail-closed на каждом
+            # повторном запросе с закэшированным эмбеддингом.
+            if cached is not None:
                 embedding = cached
             else:
                 if asyncio.iscoroutinefunction(self.embedder.encode):
@@ -576,8 +595,15 @@ class FewShotMatcher:
                 timeout=2.0
             )
 
-            if not results or not results.get("distances") or not results["distances"][0]:
-                return True, [], "fewshot_empty_db_fail_closed"
+            if not results or not results.get("distances"):
+                # Ответ без структуры (None / нет ключа) — реальная аномалия
+                return True, [], "fewshot_invalid_response_fail_closed"
+
+            if not results["distances"][0]:
+                # Пустая few-shot БД — штатный холодный старт, НЕ ошибка:
+                # иначе система блокирует все запросы до первого примера.
+                logger.warning("FewShot DB is empty — matcher passes (cold start)")
+                return False, [], None
 
             similar_examples = []
             for i, distance in enumerate(results["distances"][0]):
@@ -596,7 +622,8 @@ class FewShotMatcher:
             return len(similar_examples) > 0, similar_examples, None
 
         except Exception as e:
-            return True, [], f"fewshot_error:{e}"
+            logger.error(f"FewShot matching error: {e}")
+            return True, [], "fewshot_error_fail_closed"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -775,6 +802,8 @@ class SecurityPipeline:
         chroma_collection=None,
         trust_db_path: Path = Path("data/trust_registry.db"),
         rate_limit: int = DEFAULT_RATE_LIMIT,
+        cache_dir: Path = Path("data/cache"),
+        enable_cache: bool = False,
     ):
         self.layer1 = RegexFilter()
         self.layer2 = GuardClassifier(guard_client, prompt_template="input")
@@ -786,6 +815,15 @@ class SecurityPipeline:
         self.trust = TrustRegistry(trust_db_path)
 
         self.rate_limiter = SessionRateLimiter(rate=rate_limit)
+
+        self.cache = None
+        if enable_cache and CacheLayer is not None:
+            try:
+                self.cache = CacheLayer(cache_dir=cache_dir)
+                logger.info("SMART_CACHE integrated into pipeline")
+            except Exception as e:
+                logger.warning(f"SMART_CACHE init failed, running without cache: {e}")
+                self.cache = None
 
         self._lock = asyncio.Lock()
         self._closing = False
@@ -827,126 +865,161 @@ class SecurityPipeline:
             ctx.attack_vector = "rate_limit_exceeded"
             return ctx
 
+        # Lock только на проверку _closing: сам пайплайн работает конкурентно
+        # (Guard может занимать секунды на запрос — глобальная сериализация
+        # всех сессий недопустима). Shared-state защищён _metrics_lock и
+        # собственными локами компонентов.
         async with self._lock:
             if self._closing:
                 raise RuntimeError("Pipeline is closed")
 
-            start_time = time.perf_counter()
-            ctx = SecurityContext(session_id=session_id, user_input=text)
-            layer_verdicts = []
+        start_time = time.perf_counter()
+        ctx = SecurityContext(session_id=session_id, user_input=text)
+        layer_verdicts = []
 
-            try:
-                # TrustRegistry fast-path
-                if await self.trust.is_trusted(text):
-                    ctx.verdict = "GREEN"
-                    ctx.metadata["trusted"] = True
-                    return await self._finalize(ctx, layer_verdicts, start_time)
+        try:
+            # TrustRegistry fast-path
+            if await self.trust.is_trusted(text):
+                ctx.verdict = "GREEN"
+                ctx.metadata["trusted"] = True
+                return await self._finalize(ctx, layer_verdicts, start_time)
 
-                # Layer 1: Regex
-                layer1_start = time.perf_counter()
-                is_safe, pattern, normalized = await asyncio.to_thread(self.layer1.check, text)
-                layer1_time = (time.perf_counter() - layer1_start) * 1000
+            # Layer 1: Regex
+            layer1_start = time.perf_counter()
+            is_safe, pattern, normalized = await asyncio.to_thread(self.layer1.check, text)
+            layer1_time = (time.perf_counter() - layer1_start) * 1000
 
-                ctx.normalized_input = normalized
-                ctx.metadata["layer1_time_ms"] = layer1_time
+            ctx.normalized_input = normalized
+            ctx.metadata["layer1_time_ms"] = layer1_time
 
-                layer_verdicts.append({"layer": "Layer1-Regex", "passed": is_safe, "time_ms": layer1_time})
+            layer_verdicts.append({"layer": "Layer1-Regex", "passed": is_safe, "time_ms": layer1_time})
 
-                if not is_safe:
+            if not is_safe:
+                ctx.is_compromised = True
+                ctx.verdict = "RED"
+                ctx.violation_layer = "Layer1-Regex"
+                ctx.attack_vector = f"Direct Injection: {pattern}"
+                return await self._finalize(ctx, layer_verdicts, start_time)
+
+            # Cache L2: semantic match (skip layers 2-3 on hit)
+            if self.cache is not None:
+                try:
+                    l2_entry = await self.cache.get_l2(normalized)
+                    if l2_entry is not None:
+                        ctx.verdict = "GREEN"
+                        ctx.processed_input = normalized
+                        ctx.metadata["cache_hit"] = "L2_semantic"
+                        layer_verdicts.append({"layer": "Cache-L2-Hit", "verdict": "GREEN"})
+                        return await self._finalize(ctx, layer_verdicts, start_time)
+                except Exception as e:
+                    logger.warning(f"L2 cache lookup failed: {e}")
+
+            # Layer 2: Guard
+            layer2_start = time.perf_counter()
+            verdict, confidence, reason = await self.layer2.classify(normalized)
+            layer2_time = (time.perf_counter() - layer2_start) * 1000
+
+            ctx.metadata["layer2_time_ms"] = layer2_time
+            layer_verdicts.append({"layer": "Layer2-Guard", "verdict": verdict, "time_ms": layer2_time})
+
+            if verdict in ("RED", "YELLOW"):
+                ctx.is_compromised = True
+                ctx.verdict = verdict
+                ctx.violation_layer = "Layer2-Guard"
+                ctx.attack_vector = f"Guard non-green: {reason}"
+                return await self._finalize(ctx, layer_verdicts, start_time)
+
+            ctx.verdict = verdict
+            ctx.confidence = confidence
+
+            # Layer 3: Few-shot
+            if self.layer3:
+                layer3_start = time.perf_counter()
+                is_match, matches, error = await self.layer3.match(normalized)
+                layer3_time = (time.perf_counter() - layer3_start) * 1000
+
+                ctx.metadata["layer3_time_ms"] = layer3_time
+                layer_verdicts.append({"layer": "Layer3-FewShot", "matched": is_match, "time_ms": layer3_time})
+
+                if error:
                     ctx.is_compromised = True
                     ctx.verdict = "RED"
-                    ctx.violation_layer = "Layer1-Regex"
-                    ctx.attack_vector = f"Direct Injection: {pattern}"
+                    ctx.violation_layer = "Layer3-FewShot"
+                    ctx.attack_vector = error
                     return await self._finalize(ctx, layer_verdicts, start_time)
 
-                # Layer 2: Guard
-                layer2_start = time.perf_counter()
-                verdict, confidence, reason = await self.layer2.classify(normalized)
-                layer2_time = (time.perf_counter() - layer2_start) * 1000
-
-                ctx.metadata["layer2_time_ms"] = layer2_time
-                layer_verdicts.append({"layer": "Layer2-Guard", "verdict": verdict, "time_ms": layer2_time})
-
-                if verdict in ("RED", "YELLOW"):
-                    ctx.is_compromised = True
-                    ctx.verdict = verdict
-                    ctx.violation_layer = "Layer2-Guard"
-                    ctx.attack_vector = f"Guard non-green: {reason}"
-                    return await self._finalize(ctx, layer_verdicts, start_time)
-
-                ctx.verdict = verdict
-                ctx.confidence = confidence
-
-                # Layer 3: Few-shot
-                if self.layer3:
-                    layer3_start = time.perf_counter()
-                    is_match, matches, error = await self.layer3.match(normalized)
-                    layer3_time = (time.perf_counter() - layer3_start) * 1000
-
-                    ctx.metadata["layer3_time_ms"] = layer3_time
-                    layer_verdicts.append({"layer": "Layer3-FewShot", "matched": is_match, "time_ms": layer3_time})
-
-                    if error:
+                if is_match:
+                    red_matches = [m for m in matches if m["label"] == "RED"]
+                    if red_matches:
                         ctx.is_compromised = True
                         ctx.verdict = "RED"
                         ctx.violation_layer = "Layer3-FewShot"
-                        ctx.attack_vector = error
+                        ctx.attack_vector = "Few-shot RED match"
                         return await self._finalize(ctx, layer_verdicts, start_time)
 
-                    if is_match:
-                        red_matches = [m for m in matches if m["label"] == "RED"]
-                        if red_matches:
-                            ctx.is_compromised = True
-                            ctx.verdict = "RED"
-                            ctx.violation_layer = "Layer3-FewShot"
-                            ctx.attack_vector = "Few-shot RED match"
-                            return await self._finalize(ctx, layer_verdicts, start_time)
+            ctx.processed_input = normalized
 
-                ctx.processed_input = normalized
-                return await self._finalize(ctx, layer_verdicts, start_time)
+            # Cache L2: store GREEN verdict for future semantic matches
+            if self.cache is not None and ctx.verdict == "GREEN" and CacheVerdict is not None:
+                try:
+                    await self.cache.put_l2(
+                        query=normalized,
+                        chunks=[],
+                        source_notes=[],
+                        verdict=CacheVerdict.GREEN,
+                    )
+                except Exception as e:
+                    logger.warning(f"L2 cache store failed: {e}")
 
-            except Exception as e:
-                ctx.is_compromised = True
-                ctx.verdict = "RED"
-                ctx.violation_layer = "PipelineError"
-                ctx.attack_vector = str(e)
-                return await self._finalize(ctx, layer_verdicts, start_time)
+            return await self._finalize(ctx, layer_verdicts, start_time)
+
+        except Exception as e:
+            logger.error(f"Pipeline processing error: {e}")
+            ctx.is_compromised = True
+            ctx.verdict = "RED"
+            ctx.violation_layer = "PipelineError"
+            ctx.attack_vector = "pipeline_error_fail_closed"
+            return await self._finalize(ctx, layer_verdicts, start_time)
 
     async def process_output(self, ctx: SecurityContext) -> SecurityContext:
         """Обработать вывод модели (Layer 4)."""
+        # Lock только на проверку _closing: сам пайплайн работает конкурентно
+        # (Guard может занимать секунды на запрос — глобальная сериализация
+        # всех сессий недопустима). Shared-state защищён _metrics_lock и
+        # собственными локами компонентов.
         async with self._lock:
             if self._closing:
                 raise RuntimeError("Pipeline is closed")
 
-            if ctx.is_compromised:
-                ctx.ai_output = "Доступ заблокирован."
-                return ctx
+        if ctx.is_compromised:
+            ctx.ai_output = "Доступ заблокирован."
+            return ctx
 
-            try:
-                layer4_start = time.perf_counter()
-                processed_output, is_harmful, reason = await self.layer4.filter(ctx.ai_output)
-                layer4_time = (time.perf_counter() - layer4_start) * 1000
+        try:
+            layer4_start = time.perf_counter()
+            processed_output, is_harmful, reason = await self.layer4.filter(ctx.ai_output)
+            layer4_time = (time.perf_counter() - layer4_start) * 1000
 
-                ctx.metadata["layer4_time_ms"] = layer4_time
+            ctx.metadata["layer4_time_ms"] = layer4_time
 
-                if is_harmful:
-                    ctx.is_compromised = True
-                    ctx.verdict = "RED"
-                    ctx.violation_layer = "Layer4-OutputFilter"
-                    ctx.attack_vector = f"Output Filter: {reason}"
-                    ctx.ai_output = processed_output
-                else:
-                    ctx.ai_output = processed_output
-
-                return ctx
-
-            except Exception as e:
+            if is_harmful:
                 ctx.is_compromised = True
                 ctx.verdict = "RED"
                 ctx.violation_layer = "Layer4-OutputFilter"
-                ctx.attack_vector = f"Layer4 exception: {e}"
-                ctx.ai_output = "[ДАННЫЕ ЗАБЛОКИРОВАНЫ]"
-                return ctx
+                ctx.attack_vector = f"Output Filter: {reason}"
+                ctx.ai_output = processed_output
+            else:
+                ctx.ai_output = processed_output
+
+            return ctx
+
+        except Exception as e:
+            ctx.is_compromised = True
+            ctx.verdict = "RED"
+            ctx.violation_layer = "Layer4-OutputFilter"
+            ctx.attack_vector = f"Layer4 exception: {e}"
+            ctx.ai_output = "[ДАННЫЕ ЗАБЛОКИРОВАНЫ]"
+            return ctx
 
     async def process_document(self, content: str, metadata: Dict[str, Any], session_id: str) -> SecurityContext:
         """Обработать загруженный документ перед индексацией."""
@@ -1010,3 +1083,13 @@ class SecurityPipeline:
         """Graceful shutdown."""
         async with self._lock:
             self._closing = True
+            if hasattr(self, 'cache') and self.cache is not None:
+                try:
+                    self.cache.close()
+                except Exception as e:
+                    logger.error(f"Cache close failed: {e}")
+            if self.layer3 is not None and hasattr(self.layer3, 'close'):
+                try:
+                    self.layer3.close()
+                except Exception as e:
+                    logger.error(f"Layer3 close failed: {e}")

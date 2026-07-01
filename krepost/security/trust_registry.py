@@ -10,7 +10,6 @@ import hashlib
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional
 import asyncio
 
 from krepost.security.normalize import canonicalize_for_hash, NORMALIZATION_VERSION
