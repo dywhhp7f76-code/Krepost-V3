@@ -9,6 +9,14 @@
 
 ---
 
+## ИТОГ: PR #1 смержен в main (2026-07-01)
+
+- feat: PR #1 (58 файлов: governance, Ataker-Boop, 8 фиксов безопасности, 20 пробников, 4 фикса внешнего аудита) смержен в main; ветка claude/repo-file-migration-3n3q50 перезапущена от нового main
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/fb3d97b38799a1aa1ae27c7df84dd50938d5b732
+- Проверка: /tmp/verify_env/bin/pytest tests/ Probnoki/ -v (чистый venv, pip install -e ".[dev]" → Successfully installed ... krepost-2.2.0) → 436 passed in 11.63s; ruff check krepost/ → All checks passed! (полные выводы — в блоке верификации ниже)
+
+---
+
 ## Аудит PR #1 — верификация в чистом venv (2026-07-01)
 
 Статус 4 пунктов внешнего аудита:
