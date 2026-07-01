@@ -10,7 +10,6 @@ krepost/security/normalize.py v2.2
 
 import re
 import unicodedata
-from typing import Dict
 
 # Версия нормализации (P2 #30)
 NORMALIZATION_VERSION = "2.2.0"
