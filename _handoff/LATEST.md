@@ -9,6 +9,12 @@
 
 ---
 
+- feat: HTTP-обвязка krepost/api/ (FastAPI) поверх Orchestrator — POST /v1/query (security→router→LLM→security), /health, /metrics; серверный харденинг (лимит тела 413, валидация 422, generic 500 без утечки); demo-сборка на 127.0.0.1 с dev-guard (не для прода); extra `api`
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/afde313f71b3b881962109db1840e63a8de5b200
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_25_api.py -q → 11 passed; ruff check krepost/api/ → All checks passed!; smoke demo-сервера → health ok, query «напиши python код» → route=code, out=«[code] напиши python код»; полный набор → 541 passed in 9.29s
+
+---
+
 - feat: UrlGuard (krepost/security/url_guard.py) — SSRF-защита клиентской роли (fetch): белый список схем, запрет credentials/внутренних IP (RFC1918/loopback/link-local, IPv4/IPv6/IPv4-mapped), cloud-metadata 169.254.169.254, обфусцированных хостов, localhost; опц. resolve_dns (защита от DNS-rebinding) + allowlist; врезка в fetch-клиент + connect-time pinning остаются
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/84c718a38b5c43716030132becbb21b9dc234729
 - Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_24_url_guard.py -q → 31 passed in 0.06s; ruff check krepost/security/url_guard.py → All checks passed!; полный набор → 530 passed in 8.78s
