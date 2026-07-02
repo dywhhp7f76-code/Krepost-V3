@@ -9,6 +9,12 @@
 
 ---
 
+- feat: слой оркестрации krepost/orchestration/ (Router + Orchestrator + бэкенды) — недостающее звено между security и LLM (ARCHITECTURE_VISION §4/§5.3); детерминированная маршрутизация, избирательный fail-closed (скомпрометированный вход → генерации нет; сбой бэкенда → мягкая деградация)
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/95b989b7c9cbe3da0175d3be1b2e1f4a18b78b4e
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_21_orchestration.py -v → 16 passed in 96.65s; ruff check krepost/orchestration/ → All checks passed!; полный набор /tmp/verify_env/bin/python -m pytest tests/ Probnoki/ -q → 452 passed in 10.29s
+
+---
+
 ## ИТОГ: PR #1 смержен в main (2026-07-01)
 
 - feat: PR #1 (58 файлов: governance, Ataker-Boop, 8 фиксов безопасности, 20 пробников, 4 фикса внешнего аудита) смержен в main; ветка claude/repo-file-migration-3n3q50 перезапущена от нового main
