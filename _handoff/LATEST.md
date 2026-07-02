@@ -9,6 +9,12 @@
 
 ---
 
+- feat: OllamaBackend + фабрика (krepost/orchestration/ollama_backend.py, factory.py) — боевой стек на Ollama, замена EchoBackend/dev-guard; один клиент обслуживает guard (Qwen3Guard) и main (Qwen3.x); ModelBackend + ToolCallingBackend; нормализация ответов (dict/object/tool_calls), конвертация сообщений; extra `ollama`; README «день-1 на Mac»; на Mac остаётся только `ollama pull` + замер latency
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/0cc83be2d74e4aac7bef3ed0f1da5664f4c3add6
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_27_ollama_backend.py -q → 13 passed in 4.16s (фейк-клиент, реальный ollama не нужен); ruff → All checks passed!; полный набор → 568 passed in 9.59s
+
+---
+
 - feat: агентный tool-loop krepost/orchestration/tools.py (ToolAgent) — врезка guard'ов: каждый tool-результат сканируется ToolOutputGuard ДО возврата в модель (blocked → заглушка, инъекция не доходит), fetch-инструменты гейтятся UrlGuard ДО запроса (SSRF-URL не фетчится); скомпрометированный вход не запускает цикл, утечка в финале ловится Layer 4, лимит итераций
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/2b02d48b96ba1b5460c2dc9b822420c4952168d1
 - Проверка: проба не-утечки → «LEAKED TO MODEL: False», SSRF fetch «called on: []»; /tmp/verify_env/bin/python -m pytest Probnoki/test_26_tool_loop.py -q → 14 passed in 4.90s; ruff check krepost/orchestration/ → All checks passed!; полный набор → 555 passed in 10.00s
