@@ -9,6 +9,12 @@
 
 ---
 
+- feat: ToolOutputGuard (krepost/security/tool_guard.py) — проверка tool/MCP-результатов перед подачей в модель (закрывает промежуточный слой, раньше были только вход и финальный выход); HARD-блок инъекций/chat-template/base64 (переиспользует RegexFilter), SOFT-санитизация instruction-подобных строк; врезка в tool-loop — когда он появится
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/cef72cfb86531455bd17c64af075a2d83c2316cb
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_23_tool_output_guard.py -q → 14 passed in 4.36s; ruff check krepost/security/tool_guard.py → All checks passed!; полный набор → 499 passed in 9.00s
+
+---
+
 - fix: обход Layer 1 через C0/C1 control-символы (defense/2026-07-02 «Drag and Pwnd») — реальная дыра: `ig\x01nore previous instructions` (и STX/EOT/NUL/DEL/C1) давал GREEN вместо RED, паттерн не матчился; normalize.py теперь удаляет control-символы (кроме \t\n\r) в обеих функциях и обоих путях; хеши консистентны
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/e7ef718f1278143fa6e04a4047218b5770ba7a47
 - Проверка: /tmp/verify_env/bin/python /tmp/.../probe_norm.py → все 6 кейсов blocked/RED (было BYPASS/GREEN); /tmp/verify_env/bin/python -m pytest Probnoki/test_22_control_char_bypass.py -q → 29 passed in 4.36s; ruff check krepost/security/normalize.py → All checks passed!; полный набор → 485 passed in 9.16s
