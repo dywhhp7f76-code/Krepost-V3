@@ -9,6 +9,12 @@
 
 ---
 
+- feat: UrlGuard (krepost/security/url_guard.py) — SSRF-защита клиентской роли (fetch): белый список схем, запрет credentials/внутренних IP (RFC1918/loopback/link-local, IPv4/IPv6/IPv4-mapped), cloud-metadata 169.254.169.254, обфусцированных хостов, localhost; опц. resolve_dns (защита от DNS-rebinding) + allowlist; врезка в fetch-клиент + connect-time pinning остаются
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/84c718a38b5c43716030132becbb21b9dc234729
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_24_url_guard.py -q → 31 passed in 0.06s; ruff check krepost/security/url_guard.py → All checks passed!; полный набор → 530 passed in 8.78s
+
+---
+
 - feat: ToolOutputGuard (krepost/security/tool_guard.py) — проверка tool/MCP-результатов перед подачей в модель (закрывает промежуточный слой, раньше были только вход и финальный выход); HARD-блок инъекций/chat-template/base64 (переиспользует RegexFilter), SOFT-санитизация instruction-подобных строк; врезка в tool-loop — когда он появится
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/cef72cfb86531455bd17c64af075a2d83c2316cb
 - Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_23_tool_output_guard.py -q → 14 passed in 4.36s; ruff check krepost/security/tool_guard.py → All checks passed!; полный набор → 499 passed in 9.00s
