@@ -85,6 +85,23 @@ pip install -e ".[dev]"
 pytest
 ```
 
+### HTTP API (demo)
+
+```bash
+pip install -e ".[api]"
+python -m krepost.api.server          # http://127.0.0.1:8000
+
+curl -s localhost:8000/health
+curl -s localhost:8000/v1/query \
+  -H 'content-type: application/json' \
+  -d '{"text":"напиши python код","session_id":"s1"}'
+```
+
+Обвязка поверх `Orchestrator`: `POST /v1/query` прогоняет запрос через
+security → router → LLM → security и возвращает вердикт + ответ.
+⚠️ Демо-сборка (`krepost.api.server`) использует dev-guard, пропускающий
+всё — для прода нужен реальный Qwen3Guard и локальная LLM вместо EchoBackend.
+
 ---
 
 ## Структура проекта
