@@ -9,6 +9,12 @@
 
 ---
 
+- fix: обход Layer 1 через C0/C1 control-символы (defense/2026-07-02 «Drag and Pwnd») — реальная дыра: `ig\x01nore previous instructions` (и STX/EOT/NUL/DEL/C1) давал GREEN вместо RED, паттерн не матчился; normalize.py теперь удаляет control-символы (кроме \t\n\r) в обеих функциях и обоих путях; хеши консистентны
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/e7ef718f1278143fa6e04a4047218b5770ba7a47
+- Проверка: /tmp/verify_env/bin/python /tmp/.../probe_norm.py → все 6 кейсов blocked/RED (было BYPASS/GREEN); /tmp/verify_env/bin/python -m pytest Probnoki/test_22_control_char_bypass.py -q → 29 passed in 4.36s; ruff check krepost/security/normalize.py → All checks passed!; полный набор → 485 passed in 9.16s
+
+---
+
 - docs: заведён ROADMAP.md — очередь «нужно, но потом» из разведданных (news-бот/статьи/релизы), оператор решает; посеян из дайджестов 2026-07-01/02 по этапам; добавлена таблица «клиент vs сервер» для облачных угроз (инъекция/SSRF — сейчас; SAML/CSRF — при веб-панели)
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/6124fd31f46b469848c77ee6312d095143919f3c
 - Проверка: НЕ ВЫПОЛНЯЛАСЬ (документ, исполняемого кода нет)
