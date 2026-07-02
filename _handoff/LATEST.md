@@ -9,6 +9,24 @@
 
 ---
 
+- docs: заведён ROADMAP.md — очередь «нужно, но потом» из разведданных (news-бот/статьи/релизы), оператор решает; посеян из дайджестов 2026-07-01/02 по этапам; добавлена таблица «клиент vs сервер» для облачных угроз (инъекция/SSRF — сейчас; SAML/CSRF — при веб-панели)
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/6124fd31f46b469848c77ee6312d095143919f3c
+- Проверка: НЕ ВЫПОЛНЯЛАСЬ (документ, исполняемого кода нет)
+
+---
+
+- fix: харденинг оркестрации после ревью — Route(keywords=[""]) перехватывал весь трафик (пустые keyword'ы теперь отбрасываются); CallableBackend не видел объекты с async __call__ (теперь детектит); +4 регрессионных теста
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/84d3a88fb5fab8a379234f93eddcda81120a582d
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_21_orchestration.py -q → 20 passed in 4.91s; ruff check krepost/orchestration/ → All checks passed!; полный набор → 456 passed in 9.33s
+
+---
+
+- feat: слой оркестрации krepost/orchestration/ (Router + Orchestrator + бэкенды) — недостающее звено между security и LLM (ARCHITECTURE_VISION §4/§5.3); детерминированная маршрутизация, избирательный fail-closed (скомпрометированный вход → генерации нет; сбой бэкенда → мягкая деградация)
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/95b989b7c9cbe3da0175d3be1b2e1f4a18b78b4e
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_21_orchestration.py -v → 16 passed in 96.65s; ruff check krepost/orchestration/ → All checks passed!; полный набор /tmp/verify_env/bin/python -m pytest tests/ Probnoki/ -q → 452 passed in 10.29s
+
+---
+
 ## ИТОГ: PR #1 смержен в main (2026-07-01)
 
 - feat: PR #1 (58 файлов: governance, Ataker-Boop, 8 фиксов безопасности, 20 пробников, 4 фикса внешнего аудита) смержен в main; ветка claude/repo-file-migration-3n3q50 перезапущена от нового main
