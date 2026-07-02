@@ -22,9 +22,15 @@ presidio = [
     "presidio-analyzer",
     "presidio-anonymizer",
 ]
+api = [
+    "fastapi >= 0.110",
+    "uvicorn >= 0.27",
+]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "fastapi >= 0.110",
+    "httpx",
 ]
 
 # Явная конфигурация: в корне несколько top-level пакетов (krepost, Probnoki,
