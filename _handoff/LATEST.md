@@ -9,6 +9,12 @@
 
 ---
 
+- feat: агентный tool-loop krepost/orchestration/tools.py (ToolAgent) — врезка guard'ов: каждый tool-результат сканируется ToolOutputGuard ДО возврата в модель (blocked → заглушка, инъекция не доходит), fetch-инструменты гейтятся UrlGuard ДО запроса (SSRF-URL не фетчится); скомпрометированный вход не запускает цикл, утечка в финале ловится Layer 4, лимит итераций
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/2b02d48b96ba1b5460c2dc9b822420c4952168d1
+- Проверка: проба не-утечки → «LEAKED TO MODEL: False», SSRF fetch «called on: []»; /tmp/verify_env/bin/python -m pytest Probnoki/test_26_tool_loop.py -q → 14 passed in 4.90s; ruff check krepost/orchestration/ → All checks passed!; полный набор → 555 passed in 10.00s
+
+---
+
 - feat: HTTP-обвязка krepost/api/ (FastAPI) поверх Orchestrator — POST /v1/query (security→router→LLM→security), /health, /metrics; серверный харденинг (лимит тела 413, валидация 422, generic 500 без утечки); demo-сборка на 127.0.0.1 с dev-guard (не для прода); extra `api`
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/afde313f71b3b881962109db1840e63a8de5b200
 - Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_25_api.py -q → 11 passed; ruff check krepost/api/ → All checks passed!; smoke demo-сервера → health ok, query «напиши python код» → route=code, out=«[code] напиши python код»; полный набор → 541 passed in 9.29s
