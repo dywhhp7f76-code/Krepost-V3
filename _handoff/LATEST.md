@@ -9,6 +9,12 @@
 
 ---
 
+- feat: RAG-слой памяти krepost/memory/ (MemoryStore + chunker) — этап memory: Obsidian→эмбеддинги→ChromaDB→retrieval→безопасный контекст; ingest-guard (ToolOutputGuard проверяет контент перед записью — инъекция не индексируется), relevance threshold, сигнал confident (uncertainty), MemSyco-фрейминг (заметки=данные, не инструкции) + re-scan; embedder/collection внедряемые
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/d4ba4a53cf5e0026811a55e78d670565617a8b10
+- Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_28_memory.py -v → 17 passed in 8.19s (фейки + реальный ephemeral ChromaDB); ruff check krepost/memory/ → All checks passed!; полный набор → 585 passed in 9.69s
+
+---
+
 - feat: OllamaBackend + фабрика (krepost/orchestration/ollama_backend.py, factory.py) — боевой стек на Ollama, замена EchoBackend/dev-guard; один клиент обслуживает guard (Qwen3Guard) и main (Qwen3.x); ModelBackend + ToolCallingBackend; нормализация ответов (dict/object/tool_calls), конвертация сообщений; extra `ollama`; README «день-1 на Mac»; на Mac остаётся только `ollama pull` + замер latency
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/0cc83be2d74e4aac7bef3ed0f1da5664f4c3add6
 - Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_27_ollama_backend.py -q → 13 passed in 4.16s (фейк-клиент, реальный ollama не нужен); ruff → All checks passed!; полный набор → 568 passed in 9.59s
