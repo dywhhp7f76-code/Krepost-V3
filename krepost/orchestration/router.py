@@ -52,7 +52,9 @@ class Route:
 
     def __post_init__(self):
         self._compiled = [re.compile(p, re.IGNORECASE) for p in self.patterns]
-        self.keywords = tuple(k.lower() for k in self.keywords)
+        # Пустые/пробельные keyword'ы отбрасываем: "" как подстрока есть
+        # в любом тексте и молча перехватил бы весь трафик на этот маршрут.
+        self.keywords = tuple(k.lower() for k in self.keywords if k.strip())
 
     def matches(self, text_lower: str, ctx: "SecurityContext") -> bool:
         if any(k in text_lower for k in self.keywords):

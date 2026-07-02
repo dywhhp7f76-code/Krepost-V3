@@ -58,7 +58,12 @@ class CallableBackend:
     def __init__(self, name: str, fn: GenerateFn):
         self.name = name
         self._fn = fn
-        self._is_async = inspect.iscoroutinefunction(fn)
+        # Ловим и async-функции, и объекты с async __call__ (напр. partial
+        # уже покрыт iscoroutinefunction, но callable-класс с async __call__
+        # — нет; иначе он ушёл бы в to_thread и вернул корутину).
+        self._is_async = inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(
+            getattr(fn, "__call__", None)
+        )
 
     async def generate(self, prompt: str, ctx: "SecurityContext") -> str:
         if self._is_async:

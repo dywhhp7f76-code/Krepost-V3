@@ -140,6 +140,14 @@ class TestRouterSelection:
         r = Router([bad], default)
         assert r.select(_ctx("whatever")).name == "default"
 
+    def test_empty_keyword_does_not_hijack(self):
+        """Пустой/пробельный keyword не должен перехватывать весь трафик."""
+        hijack = Route("hijack", EchoBackend("hijack"), keywords=["", "  "])
+        default = Route("default", EchoBackend("default"))
+        r = Router([hijack], default)
+        # Маршрут без валидных матчеров ведёт себя как несрабатывающий.
+        assert r.select(_ctx("любой текст")).name == "default"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Orchestrator
@@ -236,3 +244,31 @@ class TestOrchestrator:
         orch = Orchestrator(pipeline, router)
         await orch.handle("Привет   МИР", "s1")
         assert seen["prompt"] == "Привет   МИР"  # без casefold/схлопывания пробелов
+
+
+class TestCallableBackendKinds:
+    """CallableBackend должен принимать разные виды callable, а не только
+    голые async-функции."""
+
+    @pytest.mark.asyncio
+    async def test_async_callable_object(self):
+        class AsyncGen:
+            async def __call__(self, prompt, ctx):
+                return "from-async-callable"
+        be = CallableBackend("obj", AsyncGen())
+        assert await be.generate("hi", _ctx("hi")) == "from-async-callable"
+
+    @pytest.mark.asyncio
+    async def test_partial_async(self):
+        import functools
+
+        async def gen(prompt, ctx, suffix=""):
+            return "ok" + suffix
+        be = CallableBackend("partial", functools.partial(gen, suffix="!"))
+        assert await be.generate("hi", _ctx("hi")) == "ok!"
+
+    @pytest.mark.asyncio
+    async def test_sync_non_str_raises(self):
+        be = CallableBackend("bad", lambda p, c: 123)
+        with pytest.raises(TypeError):
+            await be.generate("hi", _ctx("hi"))
