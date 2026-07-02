@@ -67,6 +67,18 @@ _ZERO_WIDTH = dict.fromkeys([
     0x202f,  # narrow no-break space (P2 #37)
 ], None)
 
+# C0/C1 control characters (кроме \t \n \r — они легитимные разделители и
+# схлопываются в пробел на шаге 5). Удаляются, а НЕ заменяются пробелом:
+# "ig\x01nore" -> "ignore", иначе паттерн "ignore" не сматчится. Тот же
+# принцип, что у zero-width: control-символ внутри слова инъекции пробивал
+# Layer 1 regex (DEL/SOH/STX/EOT/NUL/C1 давали BYPASS). См. Probnoki #22.
+_CONTROL_CHARS = dict.fromkeys(
+    [c for c in range(0x00, 0x20) if c not in (0x09, 0x0a, 0x0d)]  # C0 без \t\n\r
+    + [0x7f]                                                        # DEL
+    + list(range(0x80, 0xa0)),                                     # C1
+    None,
+)
+
 
 def canonicalize_for_hash(text: str) -> str:
     """
@@ -93,13 +105,15 @@ def canonicalize_for_hash(text: str) -> str:
     # цифровые "0"/"1"/"5"/"|") по-прежнему применяются — они влияют
     # на чистый ASCII текст (leetspeak, chat-template обход).
     if text.isascii():
-        t = text.casefold()
+        t = text.translate(_CONTROL_CHARS)
+        t = t.casefold()
         t = t.translate(_HOMOGLYPH_MAP)
         t = re.sub(r"\s+", " ", t).strip()
         return t
 
-    # 1. Zero-width + BiDi + NBSP removal
+    # 1. Zero-width + BiDi + NBSP + control-символы removal
     t = text.translate(_ZERO_WIDTH)
+    t = t.translate(_CONTROL_CHARS)
 
     # 2. NFKC normalization
     t = unicodedata.normalize("NFKC", t)
@@ -138,14 +152,16 @@ def normalize_for_scanning(text: str, soft: bool = False) -> str:
     # NFKC являются no-op на чистом ASCII, остальные шаги выполняются как
     # обычно (confusables всё ещё нужны для цифрового leetspeak на ASCII).
     if text.isascii():
-        t = text.casefold()
+        t = text.translate(_CONTROL_CHARS)
+        t = t.casefold()
         if not soft:
             t = t.translate(_HOMOGLYPH_MAP)
         t = re.sub(r"\s+", " ", t).strip()
         return t
 
-    # 1. Zero-width removal
+    # 1. Zero-width + control-символы removal
     t = text.translate(_ZERO_WIDTH)
+    t = t.translate(_CONTROL_CHARS)
 
     # 2. NFKC
     t = unicodedata.normalize("NFKC", t)
