@@ -13,6 +13,17 @@ from krepost.orchestration.orchestrator import (
     OrchestrationStatus,
 )
 from krepost.orchestration.router import Route, Router
+from krepost.orchestration.tools import (
+    AgentResult,
+    FinalAnswer,
+    Tool,
+    ToolAgent,
+    ToolCall,
+    ToolCallingBackend,
+    ToolRegistry,
+    ToolTraceEntry,
+    make_fetch_tool,
+)
 
 __all__ = [
     "ModelBackend",
@@ -23,4 +34,14 @@ __all__ = [
     "Orchestrator",
     "OrchestrationResult",
     "OrchestrationStatus",
+    # tool-loop
+    "ToolAgent",
+    "ToolCall",
+    "FinalAnswer",
+    "Tool",
+    "ToolRegistry",
+    "ToolCallingBackend",
+    "make_fetch_tool",
+    "AgentResult",
+    "ToolTraceEntry",
 ]

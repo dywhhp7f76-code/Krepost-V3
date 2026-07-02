@@ -69,9 +69,11 @@
   фиксу normalize.
 - **Откуда:** defense/2026-07-01 (Self-Study span filtering 88%→13%), defense/2026-07-02 (mcp-server-fetch).
 - **К чему относится:** defense — покрытие промежуточных tool-результатов (раньше были только вход и финальный выход).
-- **Статус:** компонент готов, Probnoki #23 (14 тестов), полный набор 499 passed.
-- **Осталось (⏳):** врезка в реальный tool-calling loop — когда он появится в
-  оркестраторе (сейчас tool-calls между агентами ещё нет, компонент построен на опережение).
+- **Статус:** компонент готов, Probnoki #23 (14 тестов).
+- **✅ Врезан в tool-loop** (2026-07-02): `krepost/orchestration/tools.py` —
+  `ToolAgent` сканирует КАЖДЫЙ tool-результат через `ToolOutputGuard` ДО
+  возврата в модель; blocked → модель получает заглушку, инъекция не доходит.
+  Probnoki #26 доказывает не-утечку. Полный набор 555 passed.
 
 ### Защита fetch-слоя: SSRF / обход URL-валидации  ✅ (сделано 2026-07-02)
 - **Что:** `krepost/security/url_guard.py` — `UrlGuard.check()` до fetch:
@@ -82,9 +84,12 @@
   проверкой каждого IP (защита от DNS-rebinding); опц. allowlist хостов.
 - **Откуда:** redteam/2026-07-02 (URL Validation Bypass, Concealing payloads in credentials).
 - **К чему относится:** defense — **клиентская** роль (fetch источников).
-- **Статус:** компонент готов, Probnoki #24 (31 тест), полный набор 530 passed.
-- **Осталось (⏳):** врезка в fetch-клиент + connect-time IP pinning (guard —
-  необходимый, но не достаточный слой от TOCTOU/rebinding; пиннинг за клиентом).
+- **Статус:** компонент готов, Probnoki #24 (31 тест).
+- **✅ Врезан в fetch-инструмент** (2026-07-02): `make_fetch_tool()` в
+  `tools.py` валидирует URL через `UrlGuard` ДО fetch; SSRF-URL не фетчится
+  (Probnoki #26 доказывает: fetch не вызывается на `169.254.169.254`).
+- **Осталось (⏳):** connect-time IP pinning (guard — необходимый, но не
+  достаточный слой от TOCTOU/rebinding; пиннинг за реальным HTTP-клиентом).
   Плюс перенос идеи в news-бот (`fetch_news.py`), когда дойдут руки.
 
 ### Нормализация до фильтрации: control-символы  ✅ (сделано 2026-07-02)
