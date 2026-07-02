@@ -9,6 +9,31 @@
 
 ---
 
+## Верификация PR #10 в ЧИСТОМ venv (2026-07-02)
+
+Отдельный свежий venv `/tmp/verify_pr10` (не переиспользован), ветка PR #10:
+
+```
+$ /tmp/verify_pr10/bin/pip install -e ".[dev]"
+INSTALL_EXIT=0
+Successfully installed ... chromadb-1.5.9 ... fastapi-0.139.0 ... krepost-2.2.0
+... numpy-2.4.6 ... pytest-9.1.1 ... sentence-transformers-5.6.0 torch-2.12.1 ...
+
+$ /tmp/verify_pr10/bin/python -c "import krepost, krepost.memory; print(...)"
+krepost: /home/user/Krepost-V3/krepost/__init__.py
+memory:  /home/user/Krepost-V3/krepost/memory/__init__.py
+
+$ /tmp/verify_pr10/bin/pytest tests/ Probnoki/ -q   (последние строки)
+........................................................................ [ 98%]
+.........                                                                [100%]
+585 passed, 1 warning in 13.61s
+PYTEST_EXIT=0
+```
+
+Итог: install чистый, пакет резолвится в код репо, полный набор зелёный → PR #10 к мержу.
+
+---
+
 - feat: RAG-слой памяти krepost/memory/ (MemoryStore + chunker) — этап memory: Obsidian→эмбеддинги→ChromaDB→retrieval→безопасный контекст; ingest-guard (ToolOutputGuard проверяет контент перед записью — инъекция не индексируется), relevance threshold, сигнал confident (uncertainty), MemSyco-фрейминг (заметки=данные, не инструкции) + re-scan; embedder/collection внедряемые
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/d4ba4a53cf5e0026811a55e78d670565617a8b10
 - Проверка: /tmp/verify_env/bin/python -m pytest Probnoki/test_28_memory.py -v → 17 passed in 8.19s (фейки + реальный ephemeral ChromaDB); ruff check krepost/memory/ → All checks passed!; полный набор → 585 passed in 9.69s
