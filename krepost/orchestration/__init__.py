@@ -44,4 +44,18 @@ __all__ = [
     "make_fetch_tool",
     "AgentResult",
     "ToolTraceEntry",
+    # ollama backend + factory
+    "OllamaBackend",
+    "build_ollama_orchestrator",
+    "build_ollama_agent",
+    "build_ollama_pipeline",
+    "make_ollama_client",
 ]
+
+from krepost.orchestration.ollama_backend import OllamaBackend  # noqa: E402
+from krepost.orchestration.factory import (  # noqa: E402
+    build_ollama_agent,
+    build_ollama_orchestrator,
+    build_ollama_pipeline,
+    make_ollama_client,
+)

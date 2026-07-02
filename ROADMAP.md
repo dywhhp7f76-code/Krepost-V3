@@ -30,11 +30,17 @@
 
 ## 🏗 foundation
 
-### Стек инференса: vLLM MRv2 + KV-offload, LocalAI distributed, Ollama MLX  ⏳
-- **Что:** vLLM Model Runner V2 (квантованные веса по умолчанию, многотировый KV-offload на диск), LocalAI distributed (NATS + SyncedMap, P2P между машинами), Ollama speculative decoding в MLX-раннере.
+### Стек инференса: Ollama (готов) → vLLM/MLX (при железе)  🔜
+- **✅ Код готов (2026-07-02):** `OllamaBackend` (ModelBackend + ToolCallingBackend)
+  + фабрика `build_ollama_orchestrator/agent` в `krepost/orchestration/`. Один
+  ollama-клиент обслуживает guard (Qwen3Guard) и main (Qwen3.x). Тесты на фейк-
+  клиенте (Probnoki #27). README — «день-1 на Mac».
+- **⏳ Осталось при железе:** `ollama pull` реальных моделей; замер latency;
+  опц. vLLM MRv2 (квантованные веса, KV-offload) и MLX speculative decoding как
+  альтернативные бэкенды (сиблинги OllamaBackend); LocalAI distributed для P2P
+  между Mac Studio и MacBook Air.
 - **Откуда:** foundation/2026-07-02 (релизы vLLM 0.22–0.24, LocalAI 4.5.x, Ollama 0.30–0.31).
-- **К чему относится:** foundation — слой инференса, разнесение моделей по машинам (Mac Studio + MacBook Air).
-- **Почему не сейчас:** нужно железо (Mac). Фиксируем как целевой стек, выбор движка — при сборке.
+- **К чему относится:** foundation — слой инференса.
 
 ---
 

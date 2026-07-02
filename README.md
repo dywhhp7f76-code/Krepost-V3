@@ -102,6 +102,30 @@ security → router → LLM → security и возвращает вердикт 
 ⚠️ Демо-сборка (`krepost.api.server`) использует dev-guard, пропускающий
 всё — для прода нужен реальный Qwen3Guard и локальная LLM вместо EchoBackend.
 
+### Боевой стек на Ollama (день-1 на Mac Studio)
+
+```bash
+pip install -e ".[api,ollama]"
+
+ollama serve &                        # локальный inference-сервер
+ollama pull qwen3.6:27b               # main-модель
+ollama pull qwen3guard-gen:4b         # guard (Layer 2)
+```
+
+```python
+from krepost.orchestration.factory import build_ollama_orchestrator
+from krepost.api.app import create_app
+
+# один ollama-клиент обслуживает и guard, и main-модель
+orch = build_ollama_orchestrator(main_model="qwen3.6:27b")
+app = create_app(orch)                # uvicorn krepost...:app
+```
+
+Для агентного режима с инструментами — `build_ollama_agent(tools=[...])`
+(`ToolAgent`): каждый tool-результат проходит `ToolOutputGuard`, fetch —
+`UrlGuard`. Layer 3 (few-shot) подключается передачей `embedder` (BGE-M3)
+и `chroma_collection` в фабрику.
+
 ---
 
 ## Структура проекта
