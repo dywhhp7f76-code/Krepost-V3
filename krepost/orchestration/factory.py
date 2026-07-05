@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from krepost.orchestration.ollama_backend import OllamaBackend
+from krepost.orchestration.openai_backend import (DEFAULT_BASE_URL,
+                                                  OpenAIBackend,
+                                                  OpenAIGuardClient)
 from krepost.orchestration.orchestrator import Orchestrator
 from krepost.orchestration.router import Route, Router
 from krepost.orchestration.tools import Tool, ToolAgent, ToolRegistry
@@ -89,4 +92,75 @@ def build_ollama_agent(
         chroma_collection=chroma_collection, client=client,
     )
     backend = OllamaBackend(main_model, host=host, client=client, options=options)
+    return ToolAgent(pipeline, backend, ToolRegistry(tools), max_iters=max_iters)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# OpenAI-совместимый стек (LM Studio / vLLM / LocalAI)
+# ─────────────────────────────────────────────────────────────────────────
+
+def build_openai_pipeline(
+    *,
+    base_url: str = DEFAULT_BASE_URL,
+    api_key: str = "lm-studio",
+    trust_db_path: Path = DEFAULT_TRUST_DB,
+    embedder: Any = None,
+    chroma_collection: Any = None,
+    enable_cache: bool = False,
+    transport: Any = None,
+) -> tuple[SecurityPipeline, Any]:
+    """(pipeline, transport). guard_client — OpenAIGuardClient на том же
+    transport, что и main-бэкенд (один сервер, разные имена моделей)."""
+    guard = OpenAIGuardClient(base_url=base_url, api_key=api_key, transport=transport)
+    pipeline = SecurityPipeline(
+        guard_client=guard,
+        embedder=embedder,
+        chroma_collection=chroma_collection,
+        trust_db_path=trust_db_path,
+        enable_cache=enable_cache,
+    )
+    return pipeline, guard._transport
+
+
+def build_openai_orchestrator(
+    main_model: str,
+    *,
+    base_url: str = DEFAULT_BASE_URL,
+    api_key: str = "lm-studio",
+    routes: Optional[Sequence[Route]] = None,
+    trust_db_path: Path = DEFAULT_TRUST_DB,
+    embedder: Any = None,
+    chroma_collection: Any = None,
+    transport: Any = None,
+    options: Optional[dict] = None,
+) -> Orchestrator:
+    pipeline, transport = build_openai_pipeline(
+        base_url=base_url, api_key=api_key, trust_db_path=trust_db_path,
+        embedder=embedder, chroma_collection=chroma_collection, transport=transport,
+    )
+    backend = OpenAIBackend(main_model, base_url=base_url, api_key=api_key,
+                            transport=transport, options=options)
+    router = Router(list(routes or []), default=Route("main", backend))
+    return Orchestrator(pipeline, router)
+
+
+def build_openai_agent(
+    main_model: str,
+    *,
+    tools: Sequence[Tool] = (),
+    base_url: str = DEFAULT_BASE_URL,
+    api_key: str = "lm-studio",
+    trust_db_path: Path = DEFAULT_TRUST_DB,
+    embedder: Any = None,
+    chroma_collection: Any = None,
+    transport: Any = None,
+    options: Optional[dict] = None,
+    max_iters: int = 6,
+) -> ToolAgent:
+    pipeline, transport = build_openai_pipeline(
+        base_url=base_url, api_key=api_key, trust_db_path=trust_db_path,
+        embedder=embedder, chroma_collection=chroma_collection, transport=transport,
+    )
+    backend = OpenAIBackend(main_model, base_url=base_url, api_key=api_key,
+                            transport=transport, options=options)
     return ToolAgent(pipeline, backend, ToolRegistry(tools), max_iters=max_iters)

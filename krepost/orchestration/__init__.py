@@ -50,12 +50,25 @@ __all__ = [
     "build_ollama_agent",
     "build_ollama_pipeline",
     "make_ollama_client",
+    # openai-compatible backend (LM Studio / vLLM / LocalAI) + factory
+    "OpenAIBackend",
+    "OpenAIGuardClient",
+    "build_openai_orchestrator",
+    "build_openai_agent",
+    "build_openai_pipeline",
 ]
 
 from krepost.orchestration.ollama_backend import OllamaBackend  # noqa: E402
+from krepost.orchestration.openai_backend import (  # noqa: E402
+    OpenAIBackend,
+    OpenAIGuardClient,
+)
 from krepost.orchestration.factory import (  # noqa: E402
     build_ollama_agent,
     build_ollama_orchestrator,
     build_ollama_pipeline,
+    build_openai_agent,
+    build_openai_orchestrator,
+    build_openai_pipeline,
     make_ollama_client,
 )

@@ -126,6 +126,27 @@ app = create_app(orch)                # uvicorn krepost...:app
 `UrlGuard`. Layer 3 (few-shot) подключается передачей `embedder` (BGE-M3)
 и `chroma_collection` в фабрику.
 
+### Или OpenAI-совместимый сервер (LM Studio / vLLM / LocalAI)
+
+Если модель крутится в LM Studio (или любом OpenAI-совместимом движке) —
+включи в нём локальный сервер и укажи Крепости его адрес. Тот же transport
+обслуживает и guard, и main-модель.
+
+```python
+from krepost.orchestration.factory import build_openai_orchestrator
+from krepost.api.app import create_app
+
+orch = build_openai_orchestrator(
+    main_model="local-model",                 # имя загруженной в LM Studio модели
+    base_url="http://127.0.0.1:1234/v1",      # LM Studio по умолчанию
+)
+app = create_app(orch)
+```
+
+`build_openai_agent(tools=[...])` — агентный режим. HTTP через stdlib (без
+доп. зависимостей); `OpenAIGuardClient` адаптирует OpenAI-ответ под
+`GuardClassifier`. Никакой привязки к движку — «архитектура важнее модели».
+
 ---
 
 ## Структура проекта
