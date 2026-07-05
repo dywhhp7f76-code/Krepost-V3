@@ -11,7 +11,29 @@
 
 - feat: OpenAIBackend + OpenAIGuardClient + фабрика build_openai_* (krepost/orchestration/openai_backend.py, factory.py) — Крепость говорит с любым OpenAI-совместимым сервером (LM Studio / vLLM / LocalAI); ModelBackend + ToolCallingBackend, guard-адаптер под GuardClassifier, конвертация сообщений (парность tool_call_id) и tools; HTTP через stdlib urllib (без новых зависимостей), transport внедряемый; README — блок про LM Studio
 - Коммит: (см. PR #11)
-- Проверка (частичная, полный clean-venv прогон дописан ниже отдельной записью): /tmp/verify_env/bin/python -m pytest Probnoki/test_29_openai_backend.py -q → 10 passed in 96.35s; ruff check krepost/orchestration/{openai_backend,factory,__init__}.py → All checks passed!
+- Проверка (частичная — полный clean-venv прогон ниже): /tmp/verify_env/bin/python -m pytest Probnoki/test_29_openai_backend.py -q → 10 passed in 96.35s; ruff check krepost/orchestration/{openai_backend,factory,__init__}.py → All checks passed!
+
+### Верификация OpenAI-бэкенда в ЧИСТОМ venv (2026-07-04)
+
+Свежий venv `/tmp/verify_oai` (не переиспользован):
+
+```
+$ /tmp/verify_oai/bin/pip install -e ".[dev]"
+INSTALL_EXIT=0
+Successfully installed ... chromadb-1.5.9 ... fastapi-0.139.0 ... krepost-2.2.0 ... torch-2.12.1 ...
+
+$ /tmp/verify_oai/bin/python -c "import krepost, krepost.orchestration.openai_backend"
+krepost:        /home/user/Krepost-V3/krepost/__init__.py
+openai_backend: /home/user/Krepost-V3/krepost/orchestration/openai_backend.py
+
+$ /tmp/verify_oai/bin/pytest tests/ Probnoki/ -q   (последние строки)
+........................................................................ [ 96%]
+...................                                                      [100%]
+595 passed, 1 warning in 9.80s
+PYTEST_EXIT=0
+```
+
+Итог: install чистый, пакет резолвится в код репо, полный набор зелёный (595, +10) → OpenAI-бэкенд к мержу (решение оператора).
 
 ---
 
