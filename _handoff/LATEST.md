@@ -9,6 +9,12 @@
 
 ---
 
+- feat: OpenAIBackend + OpenAIGuardClient + фабрика build_openai_* (krepost/orchestration/openai_backend.py, factory.py) — Крепость говорит с любым OpenAI-совместимым сервером (LM Studio / vLLM / LocalAI); ModelBackend + ToolCallingBackend, guard-адаптер под GuardClassifier, конвертация сообщений (парность tool_call_id) и tools; HTTP через stdlib urllib (без новых зависимостей), transport внедряемый; README — блок про LM Studio
+- Коммит: (см. PR #11)
+- Проверка (частичная, полный clean-venv прогон дописан ниже отдельной записью): /tmp/verify_env/bin/python -m pytest Probnoki/test_29_openai_backend.py -q → 10 passed in 96.35s; ruff check krepost/orchestration/{openai_backend,factory,__init__}.py → All checks passed!
+
+---
+
 - docs: в ROADMAP занесены топ-3 из дайджеста 2026-07-04 — PAW (рутина агентов в лёгкие артефакты на MacBook Air, foundation ⏳), ReContext + автораскладка Obsidian (апгрейды MemoryStore, memory ⏳), guardrail-метрики + алерт обхода (defense/наблюдаемость 🔜). Кода нет.
 - Коммит: (см. PR #11)
 - Проверка: НЕ ВЫПОЛНЯЛАСЬ (документация, кода нет)
