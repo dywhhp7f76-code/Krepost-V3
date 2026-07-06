@@ -9,6 +9,10 @@
 
 ---
 
+- feat: порт инженерных промптов из v2.3.1 в V3 (ТОЛЬКО промпты, старый pipeline v2.3.1 с багами НЕ тащим) — `krepost/prompts/assistant.py` (RAG-промпт основной модели: context-faithful, цитаты obsidian://, токен `<нет_данных>`, граница контекста через nonce-маркеры) + инженерные guard-промпты `_build_input_prompt`/`_build_output_prompt` вместо коротких 2-строчных в GuardClassifier (дерево детекта, шкала GYR fail-toward-safety, few-shot); защитная логика V3 не тронута
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/1ec743a8b99ef643973d1878ba7a5a5e697b9cf7
+- Проверка (чистый venv `/tmp/verify_prompts`): pip install -e ".[dev]" → INSTALL_EXIT=0, Successfully installed ... krepost-2.2.0; import krepost.prompts.assistant → OK, guard input prompt built: True; /tmp/verify_prompts/bin/pytest tests/ Probnoki/ -q → 613 passed in 12.18s, PYTEST_EXIT=0; ruff check krepost/prompts/ krepost/security/pipeline.py → All checks passed!
+
 - feat: OpenAIBackend + OpenAIGuardClient + фабрика build_openai_* (krepost/orchestration/openai_backend.py, factory.py) — Крепость говорит с любым OpenAI-совместимым сервером (LM Studio / vLLM / LocalAI); ModelBackend + ToolCallingBackend, guard-адаптер под GuardClassifier, конвертация сообщений (парность tool_call_id) и tools; HTTP через stdlib urllib (без новых зависимостей), transport внедряемый; README — блок про LM Studio
 - Коммит: (см. PR #11)
 - Проверка (частичная — полный clean-venv прогон ниже): /tmp/verify_env/bin/python -m pytest Probnoki/test_29_openai_backend.py -q → 10 passed in 96.35s; ruff check krepost/orchestration/{openai_backend,factory,__init__}.py → All checks passed!
