@@ -9,6 +9,10 @@
 
 ---
 
+- fix(BUG-02): CircuitBreaker HALF_OPEN пропускает ровно ОДИН probe (флаг _half_open_probe_in_flight под локом); probe-success→CLOSED, probe-fail→сразу OPEN. Было: can_execute() возвращал True всем в HALF_OPEN. Обновлён ассерт в #3 (был ослаблен под старое поведение).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/b21eb23c4d74e29c1450929b2a5805f1d961aa0c
+- Проверка: python -m pytest tests/ Probnoki/ -q → 620 passed, 1 warning in 12.21s (было 616, +4 пробника #32)
+
 - fix(BUG-06): включён семантический output-guard (Layer 4) в build_ollama_pipeline и build_openai_pipeline (передаём output_guard_client=client/guard; было None → Layer 4 без семантики). Пробник #31: структура (layer4.output_guard != None) + поведение (вход GREEN проходит, вредный вывод → blocked_output).
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/a1cee948e3b3b6dd0d744d7d7804b9e6fa1d5f5b
 - Проверка: pip install -e . → Successfully installed krepost-2.2.0; python -m pytest tests/ Probnoki/ -q → 616 passed, 1 warning in 16.49s (было 613, +3 пробника #31)
