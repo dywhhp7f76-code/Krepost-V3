@@ -9,6 +9,10 @@
 
 ---
 
+- fix(BUG-05): Trust Registry — PRAGMA journal_mode=WAL + synchronous=NORMAL; гоночный SELECT+INSERT заменён на INSERT ... ON CONFLICT(text_hash) DO UPDATE (не INSERT OR REPLACE — added_at сохраняется). Конкурентный add одного хеша больше не даёт IntegrityError.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/1c5800b94c2a81960f5e980b3cdf53c09a9fec5d
+- Проверка: python -m pytest tests/ Probnoki/ -q → 636 passed, 1 warning in 13.57s (было 632, +4 пробника #34; до фикса гонка роняла 23/24 потока)
+
 - fix(BUG-04-impl): build_demo_orchestrator() падает RuntimeError при KREPOST_ENV in {prod,production,staging} — dev-guard (пропускает всё) больше не утечёт в прод молча. Было: только logger.warning.
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/f68e71ffe8b3df1a8e1198577181727ef16e7789
 - Проверка: python -m pytest tests/ Probnoki/ -q → 632 passed, 1 warning in 12.28s (было 620, +12 пробника #33)
