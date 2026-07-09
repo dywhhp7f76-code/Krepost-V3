@@ -9,6 +9,10 @@
 
 ---
 
+- fix(BUG-04-impl): build_demo_orchestrator() падает RuntimeError при KREPOST_ENV in {prod,production,staging} — dev-guard (пропускает всё) больше не утечёт в прод молча. Было: только logger.warning.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/f68e71ffe8b3df1a8e1198577181727ef16e7789
+- Проверка: python -m pytest tests/ Probnoki/ -q → 632 passed, 1 warning in 12.28s (было 620, +12 пробника #33)
+
 - fix(BUG-02): CircuitBreaker HALF_OPEN пропускает ровно ОДИН probe (флаг _half_open_probe_in_flight под локом); probe-success→CLOSED, probe-fail→сразу OPEN. Было: can_execute() возвращал True всем в HALF_OPEN. Обновлён ассерт в #3 (был ослаблен под старое поведение).
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/b21eb23c4d74e29c1450929b2a5805f1d961aa0c
 - Проверка: python -m pytest tests/ Probnoki/ -q → 620 passed, 1 warning in 12.21s (было 616, +4 пробника #32)
