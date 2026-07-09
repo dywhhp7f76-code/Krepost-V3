@@ -9,6 +9,10 @@
 
 ---
 
+- fix(P2 #10): PII-маскирование карт 13-19 цифр (Luhn), не только 16-значный 4-4-4-4 — Amex(15)/13/19-значные больше не утекают. Остаток P2 (#4 base64, #11/#13/#15 PII) НЕ применял: опасны/маргинальны/нужна валидация на red-team → ROADMAP (коммиты 679732d fix, 9113c15 roadmap).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/679732dd90a9c8ca7d84498708458b92026764d6
+- Проверка: python -m pytest tests/ Probnoki/ -q → 650 passed, 1 warning in 12.53s (было 643, +7 пробника #38; PII-набор #10 97 тестов зелёный)
+
 - fix(P2 #16): api_key OpenAI-стека резолвится из env KREPOST_OPENAI_API_KEY (явный→env→фолбэк 'lm-studio'); три build_openai_* переведены на Optional[str]=None. P2 #14 (dead code) — не трогаю: финальный return RED достижим при range(0) и защищает fail-closed.
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/a99b86f67ab6529c3253be54e2051f61d759c510
 - Проверка: python -m pytest tests/ Probnoki/ -q → 643 passed, 1 warning in 12.75s (было 640, +3 пробника #37)
