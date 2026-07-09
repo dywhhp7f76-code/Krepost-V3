@@ -9,6 +9,10 @@
 
 ---
 
+- fix(P2 #16): api_key OpenAI-стека резолвится из env KREPOST_OPENAI_API_KEY (явный→env→фолбэк 'lm-studio'); три build_openai_* переведены на Optional[str]=None. P2 #14 (dead code) — не трогаю: финальный return RED достижим при range(0) и защищает fail-closed.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/a99b86f67ab6529c3253be54e2051f61d759c510
+- Проверка: python -m pytest tests/ Probnoki/ -q → 643 passed, 1 warning in 12.75s (было 640, +3 пробника #37)
+
 - fix(BUG-04): savez L1-кэша вынесен с event loop — _put разбит на _put_memory (мутация словарей на loop) + offloaded запись .npz по снимку в asyncio.to_thread под asyncio.Lock. Durability сохранена. Scope L1; L2.put/eviction/батч-flush → ROADMAP (foundation, коммит c7f4e8e).
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/c7f3b8c856c592d4aba7c2b45527325627fa3151
 - Проверка: python -m pytest tests/ Probnoki/ -q → 640 passed, 1 warning in 13.10s (было 638, +2 пробника #36; до фикса savez шёл в потоке event loop)
