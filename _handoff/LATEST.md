@@ -9,6 +9,10 @@
 
 ---
 
+- fix(BUG-06): включён семантический output-guard (Layer 4) в build_ollama_pipeline и build_openai_pipeline (передаём output_guard_client=client/guard; было None → Layer 4 без семантики). Пробник #31: структура (layer4.output_guard != None) + поведение (вход GREEN проходит, вредный вывод → blocked_output).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/a1cee948e3b3b6dd0d744d7d7804b9e6fa1d5f5b
+- Проверка: pip install -e . → Successfully installed krepost-2.2.0; python -m pytest tests/ Probnoki/ -q → 616 passed, 1 warning in 16.49s (было 613, +3 пробника #31)
+
 - feat: порт инженерных промптов из v2.3.1 в V3 (ТОЛЬКО промпты, старый pipeline v2.3.1 с багами НЕ тащим) — `krepost/prompts/assistant.py` (RAG-промпт основной модели: context-faithful, цитаты obsidian://, токен `<нет_данных>`, граница контекста через nonce-маркеры) + инженерные guard-промпты `_build_input_prompt`/`_build_output_prompt` вместо коротких 2-строчных в GuardClassifier (дерево детекта, шкала GYR fail-toward-safety, few-shot); защитная логика V3 не тронута
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/1ec743a8b99ef643973d1878ba7a5a5e697b9cf7
 - Проверка (чистый venv `/tmp/verify_prompts`): pip install -e ".[dev]" → INSTALL_EXIT=0, Successfully installed ... krepost-2.2.0; import krepost.prompts.assistant → OK, guard input prompt built: True; /tmp/verify_prompts/bin/pytest tests/ Probnoki/ -q → 613 passed in 12.18s, PYTEST_EXIT=0; ruff check krepost/prompts/ krepost/security/pipeline.py → All checks passed!
