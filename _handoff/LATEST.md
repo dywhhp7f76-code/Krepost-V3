@@ -9,6 +9,10 @@
 
 ---
 
+- fix(BUG-04): savez L1-кэша вынесен с event loop — _put разбит на _put_memory (мутация словарей на loop) + offloaded запись .npz по снимку в asyncio.to_thread под asyncio.Lock. Durability сохранена. Scope L1; L2.put/eviction/батч-flush → ROADMAP (foundation, коммит c7f4e8e).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/c7f3b8c856c592d4aba7c2b45527325627fa3151
+- Проверка: python -m pytest tests/ Probnoki/ -q → 640 passed, 1 warning in 13.10s (было 638, +2 пробника #36; до фикса savez шёл в потоке event loop)
+
 - fix(BUG-03): в make_fetch_tool вызов url_guard.check() обёрнут в asyncio.to_thread — синхронный socket.getaddrinfo (при resolve_dns=True) больше не блокирует event loop. Сигнатура check() не менялась, aiodns не добавлен.
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/0ca24e4b13010cb36aad0ff792c11b1e3a1e3bb5
 - Проверка: python -m pytest tests/ Probnoki/ -q → 638 passed, 1 warning in 12.67s (было 636, +2 пробника #35)
