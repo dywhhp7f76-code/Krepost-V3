@@ -9,6 +9,10 @@
 
 ---
 
+- fix(BUG-03): в make_fetch_tool вызов url_guard.check() обёрнут в asyncio.to_thread — синхронный socket.getaddrinfo (при resolve_dns=True) больше не блокирует event loop. Сигнатура check() не менялась, aiodns не добавлен.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/0ca24e4b13010cb36aad0ff792c11b1e3a1e3bb5
+- Проверка: python -m pytest tests/ Probnoki/ -q → 638 passed, 1 warning in 12.67s (было 636, +2 пробника #35)
+
 - fix(BUG-05): Trust Registry — PRAGMA journal_mode=WAL + synchronous=NORMAL; гоночный SELECT+INSERT заменён на INSERT ... ON CONFLICT(text_hash) DO UPDATE (не INSERT OR REPLACE — added_at сохраняется). Конкурентный add одного хеша больше не даёт IntegrityError.
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/1c5800b94c2a81960f5e980b3cdf53c09a9fec5d
 - Проверка: python -m pytest tests/ Probnoki/ -q → 636 passed, 1 warning in 13.57s (было 632, +4 пробника #34; до фикса гонка роняла 23/24 потока)
