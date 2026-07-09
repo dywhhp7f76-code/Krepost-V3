@@ -47,6 +47,10 @@ def build_ollama_pipeline(
     client = client or make_ollama_client(host)
     pipeline = SecurityPipeline(
         guard_client=client,
+        # Layer 4: тот же клиент, но GuardClassifier ставит prompt_template=
+        # "output" — семантическая проверка вывода (BUG-06: без него Layer 4
+        # деградировал до regex-leakage + PII, а README заявляет 4 слоя).
+        output_guard_client=client,
         embedder=embedder,
         chroma_collection=chroma_collection,
         trust_db_path=trust_db_path,
@@ -114,6 +118,9 @@ def build_openai_pipeline(
     guard = OpenAIGuardClient(base_url=base_url, api_key=api_key, transport=transport)
     pipeline = SecurityPipeline(
         guard_client=guard,
+        # Layer 4: тот же guard-клиент (stateless transport), GuardClassifier
+        # разводит input/output по prompt_template (BUG-06).
+        output_guard_client=guard,
         embedder=embedder,
         chroma_collection=chroma_collection,
         trust_db_path=trust_db_path,
