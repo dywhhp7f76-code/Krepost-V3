@@ -28,7 +28,8 @@ class TestCircuitBreakerHalfOpenReset:
         assert cb.failure_count == 0
 
     def test_single_failure_in_half_open_goes_back_to_open(self):
-        """Одна ошибка в HALF_OPEN -> OPEN, но failure_count начинается с 0."""
+        """Одна ошибка в HALF_OPEN -> сразу OPEN (BUG-02: канон circuit breaker;
+        раньше код накапливал до threshold и ассерт был ослаблен)."""
         cb = CircuitBreaker(failure_threshold=3, recovery_timeout=0)
         for _ in range(3):
             cb.record_failure()
@@ -36,7 +37,7 @@ class TestCircuitBreakerHalfOpenReset:
         assert cb.failure_count == 0
         cb.record_failure()
         assert cb.failure_count == 1
-        assert cb.state == "CLOSED" or cb.state == "HALF_OPEN"
+        assert cb.state == "OPEN"
 
     def test_success_in_half_open_closes(self):
         """Успех в HALF_OPEN → CLOSED."""

@@ -211,6 +211,9 @@ class CircuitBreaker:
         self.failure_count = 0
         self.last_failure_time = 0
         self.state = "CLOSED"
+        # BUG-02: в HALF_OPEN пропускаем РОВНО один probe. Флаг под тем же
+        # локом гарантирует, что при конкуренции пройдёт только первый.
+        self._half_open_probe_in_flight = False
         self._lock = threading.Lock()
 
     def can_execute(self) -> bool:
@@ -221,21 +224,29 @@ class CircuitBreaker:
                 if time.time() - self.last_failure_time > self.recovery_timeout:
                     self.state = "HALF_OPEN"
                     self.failure_count = 0
+                    self._half_open_probe_in_flight = True  # этот вызов — probe
                     return True
                 return False
-            else:
-                return True
+            else:  # HALF_OPEN
+                if not self._half_open_probe_in_flight:
+                    self._half_open_probe_in_flight = True
+                    return True
+                return False
 
     def record_success(self):
         with self._lock:
             self.failure_count = 0
             self.state = "CLOSED"
+            self._half_open_probe_in_flight = False
 
     def record_failure(self):
         with self._lock:
             self.failure_count += 1
             self.last_failure_time = time.time()
-            if self.failure_count >= self.failure_threshold:
+            self._half_open_probe_in_flight = False
+            # Провал probe в HALF_OPEN → сразу OPEN (окно ожидания
+            # перезапущено выше). Иначе — по достижении порога.
+            if self.state == "HALF_OPEN" or self.failure_count >= self.failure_threshold:
                 self.state = "OPEN"
 
 
