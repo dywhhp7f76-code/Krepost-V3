@@ -743,7 +743,10 @@ class PIIMasker:
         (r"AKIA[0-9A-Z]{16}", "[AWS_ACCESS_KEY_REDACTED]", None),
         (r"eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*", "[JWT_REDACTED]", None),
         (r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]{1,4000}?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", "[PRIVATE_KEY_REDACTED]", None),
-        (r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", "[CARD_HIDDEN]", "luhn"),
+        # P2 #10: 13–19 цифр с опц. разделителями (Amex-15, 13/19-значные), не
+        # только 16-значный 4-4-4-4. Luhn отсекает случайные числа; порог ≥13
+        # исключает телефон/ИНН/СНИЛС/паспорт (≤12 цифр либо иной формат).
+        (r"\b(?:\d[ -]?){12,18}\d\b", "[CARD_HIDDEN]", "luhn"),
         (r"\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", "[PHONE_HIDDEN]", None),
         (r"\b\d{4}\s\d{6}\b", "[RU_PASSPORT_HIDDEN]", None),
         (r"\b\d{3}-\d{3}-\d{3}\s\d{2}\b", "[RU_SNILS_HIDDEN]", "snils"),
