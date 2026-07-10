@@ -208,6 +208,26 @@
 
 ## ⚔ redteam
 
+### Ataker-Boop: success-по-содержимому + hard-cap/cooldown  ⏳
+- **Контекст:** verification sweep 2026-07-09. Risk 1 (раздельные БД) закрыт —
+  БД уже раздельны (`data/attack_vault.db` vs `data/trust_registry.db`), плюс
+  добавлен `Ataker-boop/.gitignore` (хранилище атак не коммитим). Осталось:
+  - **Risk 3 — успех атаки по СОДЕРЖИМОМУ ответа Main-модели, не по verdict.**
+    Сейчас `red_team_loop._test_payload` зовёт только `pipeline.process()`
+    (вход, Layers 1–3) и мерит `bypassed = ctx.verdict != "RED"`. Ответа модели
+    тут вообще нет. Правильный success-analyzer гоняет ПОЛНЫЙ цикл
+    (process→generate→process_output) на ЖИВОЙ модели и проверяет, выполнила ли
+    модель вредную инструкцию по содержимому. Требует железа/LM Studio →
+    архитектурное изменение red-team контура, не быстрый фикс. Связано с BUG-07.
+  - **Risk 2 — hard-cap + cooldown.** `run()` уже принимает `max_attacks`
+    (опц.), цикл конечный (генерит ограниченный список, не бесконечный). Жёсткий
+    дефолт-кап в 100 атак/run из отчёта — СЛИШКОМ мал для фаззера (режет
+    покрытие); адекватный потолок + cooldown между запусками — на этапе, когда
+    Boop гоняется в непрерывном режиме на отдельной машине.
+- **Почему не сейчас:** оба нужны на реальном железе с живой моделью; менять
+  red-team метрику успеха вслепую (без прогона) — угадывание.
+- **К чему относится:** redteam — Ataker-Boop, success-analyzer.
+
 ### Prompt-injection fuzzer для Ataker-Boop  ⏳
 - **Что:** из одного удачного/неудачного jailbreak-промпта авто-генерировать мутации и гонять против guardrails в непрерывном цикле (аналог garak/PyRIT/Shadow Repeater).
 - **Откуда:** redteam/2026-07-02 (Shadow Repeater, Repeater Strike, WebSocket Turbo Intruder).
