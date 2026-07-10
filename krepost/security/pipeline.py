@@ -55,6 +55,19 @@ except ImportError:
 Verdict = Literal["GREEN", "YELLOW", "RED"]
 POLICY_VERSION = "2.2.0"
 
+
+def _versioned_cache_dir(base: Path) -> Path:
+    """BUG-07: изолировать кэш по версии политики.
+
+    L2 cache-hit отдаёт GREEN, минуя Guard/Layer 3. Чтобы старые GREEN-вердикты
+    не проскакивали мимо ОБНОВЛЁННОГО Guard после смены политики, кэш живёт в
+    подкаталоге policy-<POLICY_VERSION>: бамп версии = другой каталог = старые
+    вердикты недостижимы (естественная инвалидация L1/L2/L3). Смена guard-модели
+    по конвенции сопровождается бампом POLICY_VERSION.
+    """
+    return base / f"policy-{POLICY_VERSION}"
+
+
 DEFAULT_RATE_LIMIT = 100
 DEFAULT_RATE_WINDOW = 60
 
@@ -925,8 +938,8 @@ class SecurityPipeline:
         self.cache = None
         if enable_cache and CacheLayer is not None:
             try:
-                self.cache = CacheLayer(cache_dir=cache_dir)
-                logger.info("SMART_CACHE integrated into pipeline")
+                self.cache = CacheLayer(cache_dir=_versioned_cache_dir(cache_dir))
+                logger.info("SMART_CACHE integrated into pipeline (policy-versioned dir)")
             except Exception as e:
                 logger.warning(f"SMART_CACHE init failed, running without cache: {e}")
                 self.cache = None
