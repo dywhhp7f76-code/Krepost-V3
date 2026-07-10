@@ -44,6 +44,10 @@ class TrustRegistry:
     def _init_db(self):
         """Инициализация БД."""
         with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+            # BUG-05: WAL — конкурентные читатели не блокируют писателя,
+            # меньше «database is locked». synchronous=NORMAL безопасен с WAL.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute(self.SCHEMA)
             conn.commit()
 
@@ -85,25 +89,29 @@ class TrustRegistry:
         await asyncio.to_thread(self._sync_add_trusted, text_hash, source_name)
 
     def _sync_add_trusted(self, text_hash: str, source_name: str):
-        """Синхронное добавление (P2 #36: INSERT OR IGNORE + UPDATE)."""
+        """Синхронное добавление, атомарно (BUG-05).
+
+        INSERT ... ON CONFLICT DO UPDATE вместо гоночного SELECT+INSERT:
+        конкурентное добавление одного нового хеша больше не даёт
+        IntegrityError. НЕ INSERT OR REPLACE — тот бы удалил+пересоздал строку
+        и сбросил added_at. added_at не входит в SET → всегда сохраняется.
+        WHERE revoked=1 повторяет прежнюю семантику: повторный add уже
+        активного хеша — no-op (не трогаем метаданные и added_at).
+        """
         with sqlite3.connect(self.db_path, timeout=5.0) as conn:
-            existing = conn.execute(
-                "SELECT revoked FROM trusted_sources WHERE text_hash = ?",
-                (text_hash,)
-            ).fetchone()
-
-            if existing:
-                if existing[0] == 1:
-                    conn.execute(
-                        "UPDATE trusted_sources SET revoked = 0, source_name = ?, normalization_version = ? WHERE text_hash = ?",
-                        (source_name, NORMALIZATION_VERSION, text_hash)
-                    )
-            else:
-                conn.execute(
-                    "INSERT INTO trusted_sources (text_hash, added_at, source_name, revoked, normalization_version) VALUES (?, ?, ?, 0, ?)",
-                    (text_hash, time.time(), source_name, NORMALIZATION_VERSION)
-                )
-
+            conn.execute(
+                """
+                INSERT INTO trusted_sources
+                    (text_hash, added_at, source_name, revoked, normalization_version)
+                VALUES (?, ?, ?, 0, ?)
+                ON CONFLICT(text_hash) DO UPDATE SET
+                    revoked = 0,
+                    source_name = excluded.source_name,
+                    normalization_version = excluded.normalization_version
+                WHERE trusted_sources.revoked = 1
+                """,
+                (text_hash, time.time(), source_name, NORMALIZATION_VERSION)
+            )
             conn.commit()
 
     async def revoke_trusted(self, text: str) -> None:

@@ -1,0 +1,18 @@
+# Ataker-Boop — red-team инструмент. Хранилище атак НИКОГДА не коммитим:
+# успешные payload'ы не должны просачиваться в репозиторий/prod (cross-
+# contamination, Risk 1). Attack Vault и отчёты — локальные артефакты.
+vault_data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+report*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/

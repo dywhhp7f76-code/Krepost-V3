@@ -38,7 +38,19 @@ class _DevAllowGuard:
                 '{"status":"GREEN","reason":"dev_allow","confidence":1.0}'}}
 
 
+_PROD_LIKE_ENVS = {"prod", "production", "staging"}
+
+
 def build_demo_orchestrator(trust_db_path: Path | None = None) -> Orchestrator:
+    # BUG-04-impl: dev-guard пропускает всё (GREEN). Предохранитель, чтобы он
+    # не утёк в прод молча — падаем жёстко, а не деградируем защиту.
+    env = os.environ.get("KREPOST_ENV", "").strip().lower()
+    if env in _PROD_LIKE_ENVS:
+        raise RuntimeError(
+            f"build_demo_orchestrator() запрещён при KREPOST_ENV={env!r}: "
+            "demo dev-guard пропускает всё. В проде используйте "
+            "build_ollama_orchestrator()/build_openai_orchestrator() с реальным Guard."
+        )
     logger.warning("DEMO orchestrator: dev-guard passes everything — NOT for production")
     pipeline = SecurityPipeline(
         guard_client=_DevAllowGuard(),

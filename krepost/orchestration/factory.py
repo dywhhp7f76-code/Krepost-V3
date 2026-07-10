@@ -11,6 +11,7 @@ build_ollama_orchestrator()/build_ollama_agent() — остальное уже �
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -26,6 +27,16 @@ from krepost.security.pipeline import SecurityPipeline
 DEFAULT_HOST = "http://127.0.0.1:11434"
 DEFAULT_MAIN_MODEL = "qwen3.6:27b"
 DEFAULT_TRUST_DB = Path("data/trust_registry.db")
+
+
+def _resolve_openai_api_key(explicit: Optional[str]) -> str:
+    """P2 #16: явный аргумент → env KREPOST_OPENAI_API_KEY → фолбэк 'lm-studio'.
+
+    Хардкод 'lm-studio' молча ловил 401 на реальном OpenAI-совместимом сервере
+    с авторизацией; теперь ключ приходит из окружения, а локальный LM Studio
+    (которому ключ безразличен) продолжает работать по фолбэку.
+    """
+    return explicit or os.environ.get("KREPOST_OPENAI_API_KEY") or "lm-studio"
 
 
 def make_ollama_client(host: str = DEFAULT_HOST) -> Any:
@@ -47,6 +58,10 @@ def build_ollama_pipeline(
     client = client or make_ollama_client(host)
     pipeline = SecurityPipeline(
         guard_client=client,
+        # Layer 4: тот же клиент, но GuardClassifier ставит prompt_template=
+        # "output" — семантическая проверка вывода (BUG-06: без него Layer 4
+        # деградировал до regex-leakage + PII, а README заявляет 4 слоя).
+        output_guard_client=client,
         embedder=embedder,
         chroma_collection=chroma_collection,
         trust_db_path=trust_db_path,
@@ -102,7 +117,7 @@ def build_ollama_agent(
 def build_openai_pipeline(
     *,
     base_url: str = DEFAULT_BASE_URL,
-    api_key: str = "lm-studio",
+    api_key: Optional[str] = None,
     trust_db_path: Path = DEFAULT_TRUST_DB,
     embedder: Any = None,
     chroma_collection: Any = None,
@@ -111,9 +126,13 @@ def build_openai_pipeline(
 ) -> tuple[SecurityPipeline, Any]:
     """(pipeline, transport). guard_client — OpenAIGuardClient на том же
     transport, что и main-бэкенд (один сервер, разные имена моделей)."""
+    api_key = _resolve_openai_api_key(api_key)
     guard = OpenAIGuardClient(base_url=base_url, api_key=api_key, transport=transport)
     pipeline = SecurityPipeline(
         guard_client=guard,
+        # Layer 4: тот же guard-клиент (stateless transport), GuardClassifier
+        # разводит input/output по prompt_template (BUG-06).
+        output_guard_client=guard,
         embedder=embedder,
         chroma_collection=chroma_collection,
         trust_db_path=trust_db_path,
@@ -126,7 +145,7 @@ def build_openai_orchestrator(
     main_model: str,
     *,
     base_url: str = DEFAULT_BASE_URL,
-    api_key: str = "lm-studio",
+    api_key: Optional[str] = None,
     routes: Optional[Sequence[Route]] = None,
     trust_db_path: Path = DEFAULT_TRUST_DB,
     embedder: Any = None,
@@ -134,6 +153,7 @@ def build_openai_orchestrator(
     transport: Any = None,
     options: Optional[dict] = None,
 ) -> Orchestrator:
+    api_key = _resolve_openai_api_key(api_key)
     pipeline, transport = build_openai_pipeline(
         base_url=base_url, api_key=api_key, trust_db_path=trust_db_path,
         embedder=embedder, chroma_collection=chroma_collection, transport=transport,
@@ -149,7 +169,7 @@ def build_openai_agent(
     *,
     tools: Sequence[Tool] = (),
     base_url: str = DEFAULT_BASE_URL,
-    api_key: str = "lm-studio",
+    api_key: Optional[str] = None,
     trust_db_path: Path = DEFAULT_TRUST_DB,
     embedder: Any = None,
     chroma_collection: Any = None,
@@ -157,6 +177,7 @@ def build_openai_agent(
     options: Optional[dict] = None,
     max_iters: int = 6,
 ) -> ToolAgent:
+    api_key = _resolve_openai_api_key(api_key)
     pipeline, transport = build_openai_pipeline(
         base_url=base_url, api_key=api_key, trust_db_path=trust_db_path,
         embedder=embedder, chroma_collection=chroma_collection, transport=transport,

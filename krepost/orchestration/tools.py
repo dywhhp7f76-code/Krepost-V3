@@ -118,7 +118,9 @@ def make_fetch_tool(
 
     async def _fn(args: Dict[str, Any]) -> str:
         url = str(args.get("url", ""))
-        verdict = guard.check(url)
+        # BUG-03: check() синхронный и при resolve_dns=True зовёт блокирующий
+        # socket.getaddrinfo — уводим с event loop, без новой зависимости.
+        verdict = await asyncio.to_thread(guard.check, url)
         if not verdict.allowed:
             logger.warning(f"fetch tool {name!r} blocked url: {verdict.reason}")
             return f"[fetch blocked: {verdict.reason}]"

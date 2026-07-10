@@ -156,6 +156,10 @@ class _CacheBase:
         self._last_event_at: Optional[float] = None
         self._writeback_counter = 0
         self._writeback_every = 20
+        # BUG-04: сериализует запись на диск и уводит savez с event loop.
+        # Мутация словарей остаётся на loop (быстро/атомарно), на диск пишем
+        # по снимку в отдельном потоке; Lock исключает гонку на общий tmp-файл.
+        self._disk_lock = asyncio.Lock()
 
     def _emit(self, event_type: CacheEventType, level: EventLevel,
               message: str, payload: Optional[dict] = None) -> None:
@@ -270,10 +274,18 @@ class QueryEmbeddingCache(_CacheBase):
         text = self.QUERY_PREFIX + query
         embedding = await asyncio.to_thread(self.encoder.encode, text,
                                             convert_to_numpy=True, normalize_embeddings=True)
-        self._put(key, query, embedding)
+        self._put_memory(key, query, embedding)
+        # BUG-04: savez — вне event loop, по снимку, сериализованно.
+        async with self._disk_lock:
+            snapshot = dict(self._embeddings)  # на loop, атомарно (без await)
+            if snapshot:
+                await asyncio.to_thread(self._atomic_write_npz, self._npz_path, snapshot)
         return embedding
 
-    def _put(self, key: str, query: str, embedding: np.ndarray) -> None:
+    def _put_memory(self, key: str, query: str, embedding: np.ndarray) -> None:
+        """Мутация in-memory + дешёвый append jsonl. Тяжёлая запись .npz —
+        отдельно, вне event loop (см. encode). Синхронно, на loop → атомарно
+        относительно других корутин того же loop'а."""
         if len(self._entries) >= self.max_entries:
             self._evict(target_size=self.max_entries - 1)
         entry = L1Entry(key=key, query_preview=query[:80])
@@ -281,7 +293,6 @@ class QueryEmbeddingCache(_CacheBase):
         self._embeddings[key] = embedding
         self._writeback_counter += 1
         self._save_entry_append(entry)
-        self._save_embeddings()
         self._emit(CacheEventType.PUT, EventLevel.GREEN, f"L1 put | key={key}")
 
     def _save_entry_append(self, entry: L1Entry) -> None:

@@ -9,6 +9,50 @@
 
 ---
 
+- chore(ataker, Risk-1): добавлен Ataker-boop/.gitignore — Attack Vault (vault_data/, *.db/sqlite, report*.json) не коммитим (cross-contamination). БД уже раздельны с Trust Registry. Risk 2/3 → ROADMAP (нужна живая модель/железо; коммит f5edd0b).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/8bacd8d4ac5986c207f3c568be463d23eb756df2
+- Проверка: python -m pytest Ataker-boop/tests/ -q → 45 passed in 0.49s (инструмент не сломан)
+
+- fix(BUG-07): L2/L3-кэш изолирован по версии политики — CacheLayer живёт в подкаталоге policy-<POLICY_VERSION>. Смена версии = другой каталог = старые GREEN-вердикты не проскакивают мимо обновлённого Guard. Version-поля в L2Entry — часть редизайна кэша (ROADMAP).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/72c617e4b4ac9955aafc66d9f028d2b8ab00c45d
+- Проверка: python -m pytest tests/ Probnoki/ -q → 653 passed, 1 warning in 15.73s (было 650, +3 пробника #39)
+
+- fix(P2 #10): PII-маскирование карт 13-19 цифр (Luhn), не только 16-значный 4-4-4-4 — Amex(15)/13/19-значные больше не утекают. Остаток P2 (#4 base64, #11/#13/#15 PII) НЕ применял: опасны/маргинальны/нужна валидация на red-team → ROADMAP (коммиты 679732d fix, 9113c15 roadmap).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/679732dd90a9c8ca7d84498708458b92026764d6
+- Проверка: python -m pytest tests/ Probnoki/ -q → 650 passed, 1 warning in 12.53s (было 643, +7 пробника #38; PII-набор #10 97 тестов зелёный)
+
+- fix(P2 #16): api_key OpenAI-стека резолвится из env KREPOST_OPENAI_API_KEY (явный→env→фолбэк 'lm-studio'); три build_openai_* переведены на Optional[str]=None. P2 #14 (dead code) — не трогаю: финальный return RED достижим при range(0) и защищает fail-closed.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/a99b86f67ab6529c3253be54e2051f61d759c510
+- Проверка: python -m pytest tests/ Probnoki/ -q → 643 passed, 1 warning in 12.75s (было 640, +3 пробника #37)
+
+- fix(BUG-04): savez L1-кэша вынесен с event loop — _put разбит на _put_memory (мутация словарей на loop) + offloaded запись .npz по снимку в asyncio.to_thread под asyncio.Lock. Durability сохранена. Scope L1; L2.put/eviction/батч-flush → ROADMAP (foundation, коммит c7f4e8e).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/c7f3b8c856c592d4aba7c2b45527325627fa3151
+- Проверка: python -m pytest tests/ Probnoki/ -q → 640 passed, 1 warning in 13.10s (было 638, +2 пробника #36; до фикса savez шёл в потоке event loop)
+
+- fix(BUG-03): в make_fetch_tool вызов url_guard.check() обёрнут в asyncio.to_thread — синхронный socket.getaddrinfo (при resolve_dns=True) больше не блокирует event loop. Сигнатура check() не менялась, aiodns не добавлен.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/0ca24e4b13010cb36aad0ff792c11b1e3a1e3bb5
+- Проверка: python -m pytest tests/ Probnoki/ -q → 638 passed, 1 warning in 12.67s (было 636, +2 пробника #35)
+
+- fix(BUG-05): Trust Registry — PRAGMA journal_mode=WAL + synchronous=NORMAL; гоночный SELECT+INSERT заменён на INSERT ... ON CONFLICT(text_hash) DO UPDATE (не INSERT OR REPLACE — added_at сохраняется). Конкурентный add одного хеша больше не даёт IntegrityError.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/1c5800b94c2a81960f5e980b3cdf53c09a9fec5d
+- Проверка: python -m pytest tests/ Probnoki/ -q → 636 passed, 1 warning in 13.57s (было 632, +4 пробника #34; до фикса гонка роняла 23/24 потока)
+
+- fix(BUG-04-impl): build_demo_orchestrator() падает RuntimeError при KREPOST_ENV in {prod,production,staging} — dev-guard (пропускает всё) больше не утечёт в прод молча. Было: только logger.warning.
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/f68e71ffe8b3df1a8e1198577181727ef16e7789
+- Проверка: python -m pytest tests/ Probnoki/ -q → 632 passed, 1 warning in 12.28s (было 620, +12 пробника #33)
+
+- fix(BUG-02): CircuitBreaker HALF_OPEN пропускает ровно ОДИН probe (флаг _half_open_probe_in_flight под локом); probe-success→CLOSED, probe-fail→сразу OPEN. Было: can_execute() возвращал True всем в HALF_OPEN. Обновлён ассерт в #3 (был ослаблен под старое поведение).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/b21eb23c4d74e29c1450929b2a5805f1d961aa0c
+- Проверка: python -m pytest tests/ Probnoki/ -q → 620 passed, 1 warning in 12.21s (было 616, +4 пробника #32)
+
+- fix(BUG-06): включён семантический output-guard (Layer 4) в build_ollama_pipeline и build_openai_pipeline (передаём output_guard_client=client/guard; было None → Layer 4 без семантики). Пробник #31: структура (layer4.output_guard != None) + поведение (вход GREEN проходит, вредный вывод → blocked_output).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/a1cee948e3b3b6dd0d744d7d7804b9e6fa1d5f5b
+- Проверка: pip install -e . → Successfully installed krepost-2.2.0; python -m pytest tests/ Probnoki/ -q → 616 passed, 1 warning in 16.49s (было 613, +3 пробника #31)
+
+- feat: порт инженерных промптов из v2.3.1 в V3 (ТОЛЬКО промпты, старый pipeline v2.3.1 с багами НЕ тащим) — `krepost/prompts/assistant.py` (RAG-промпт основной модели: context-faithful, цитаты obsidian://, токен `<нет_данных>`, граница контекста через nonce-маркеры) + инженерные guard-промпты `_build_input_prompt`/`_build_output_prompt` вместо коротких 2-строчных в GuardClassifier (дерево детекта, шкала GYR fail-toward-safety, few-shot); защитная логика V3 не тронута
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/1ec743a8b99ef643973d1878ba7a5a5e697b9cf7
+- Проверка (чистый venv `/tmp/verify_prompts`): pip install -e ".[dev]" → INSTALL_EXIT=0, Successfully installed ... krepost-2.2.0; import krepost.prompts.assistant → OK, guard input prompt built: True; /tmp/verify_prompts/bin/pytest tests/ Probnoki/ -q → 613 passed in 12.18s, PYTEST_EXIT=0; ruff check krepost/prompts/ krepost/security/pipeline.py → All checks passed!
+
 - feat: OpenAIBackend + OpenAIGuardClient + фабрика build_openai_* (krepost/orchestration/openai_backend.py, factory.py) — Крепость говорит с любым OpenAI-совместимым сервером (LM Studio / vLLM / LocalAI); ModelBackend + ToolCallingBackend, guard-адаптер под GuardClassifier, конвертация сообщений (парность tool_call_id) и tools; HTTP через stdlib urllib (без новых зависимостей), transport внедряемый; README — блок про LM Studio
 - Коммит: (см. PR #11)
 - Проверка (частичная — полный clean-venv прогон ниже): /tmp/verify_env/bin/python -m pytest Probnoki/test_29_openai_backend.py -q → 10 passed in 96.35s; ruff check krepost/orchestration/{openai_backend,factory,__init__}.py → All checks passed!
