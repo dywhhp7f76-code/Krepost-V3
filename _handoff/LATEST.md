@@ -9,6 +9,10 @@
 
 ---
 
+- fix(BUG-07): L2/L3-кэш изолирован по версии политики — CacheLayer живёт в подкаталоге policy-<POLICY_VERSION>. Смена версии = другой каталог = старые GREEN-вердикты не проскакивают мимо обновлённого Guard. Version-поля в L2Entry — часть редизайна кэша (ROADMAP).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/72c617e4b4ac9955aafc66d9f028d2b8ab00c45d
+- Проверка: python -m pytest tests/ Probnoki/ -q → 653 passed, 1 warning in 15.73s (было 650, +3 пробника #39)
+
 - fix(P2 #10): PII-маскирование карт 13-19 цифр (Luhn), не только 16-значный 4-4-4-4 — Amex(15)/13/19-значные больше не утекают. Остаток P2 (#4 base64, #11/#13/#15 PII) НЕ применял: опасны/маргинальны/нужна валидация на red-team → ROADMAP (коммиты 679732d fix, 9113c15 roadmap).
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/679732dd90a9c8ca7d84498708458b92026764d6
 - Проверка: python -m pytest tests/ Probnoki/ -q → 650 passed, 1 warning in 12.53s (было 643, +7 пробника #38; PII-набор #10 97 тестов зелёный)
