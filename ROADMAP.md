@@ -14,6 +14,47 @@
 
 ---
 
+## ✅ Verification sweep 2026-07-09 — исправлено (PR #12, ветка claude/repo-file-migration-3n3q50)
+
+Сверка мастер-листа из 7 аудитов с живым кодом: каждый пункт подтверждён/
+опровергнут фактом, реальные баги закрыты по правилу «один баг = падающий
+тест → фикс → полный pytest → запись в `_handoff/LATEST.md`». Тесты 613 → 653.
+
+**Исправлено (10):**
+- **BUG-06** — `output_guard` был выключен в обеих фабриках; включён семантический
+  Layer 4 (`build_ollama_pipeline`/`build_openai_pipeline`). Пробник #31.
+- **BUG-02** — CircuitBreaker в HALF_OPEN пускал все запросы; теперь один probe,
+  probe-fail → сразу OPEN. Пробник #32.
+- **BUG-04-impl** — `build_demo_orchestrator()` (dev-guard пропускает всё) падает
+  RuntimeError при `KREPOST_ENV in {prod,production,staging}`. Пробник #33.
+- **BUG-05** — Trust Registry: `PRAGMA journal_mode=WAL` + `INSERT … ON CONFLICT
+  DO UPDATE` (не `INSERT OR REPLACE` — `added_at` сохранён). Пробник #34.
+- **BUG-03** — `url_guard.check()` в fetch-инструменте уведён с event loop через
+  `asyncio.to_thread` (без aiodns). Пробник #35.
+- **BUG-04** — savez L1-кэша уведён с loop: `_put_memory` на loop + запись .npz по
+  снимку в `to_thread` под `asyncio.Lock`. Пробник #36.
+- **BUG-07** — L2/L3-кэш изолирован по версии политики (подкаталог
+  `policy-<POLICY_VERSION>`); старый GREEN не проскакивает мимо нового Guard.
+  Пробник #39.
+- **P2 #16** — `api_key` OpenAI-стека из `KREPOST_OPENAI_API_KEY`. Пробник #37.
+- **P2 #10** — маскирование карт 13–19 цифр (Luhn), не только 16 (Amex не утекает).
+  Пробник #38.
+- **Ataker Risk-1** — `Ataker-boop/.gitignore` (Attack Vault не коммитим; БД уже
+  раздельны с Trust Registry).
+
+**Опровергнуто фактом (фиксить нечего):** BUG-01 (лок уже скоуплен на `_closing`),
+CONFLICT-01 (Layer 4 не падает — `process_output` берёт свежий контекст),
+Boop Risk-1 (БД раздельны).
+
+**Отложено с обоснованием (ниже по разделам):** P2-регексы #4/#11/#13/#15 (нужна
+валидация на PII+red-team наборе; #15 в версии аудита опасен), BUG-04 L2/eviction/
+батч-flush (редизайн персистентности кэша), Ataker Risk 2/3 (нужна живая модель).
+**Не трогаю намеренно:** #14 (fail-closed страховка, достижима при `range(0)`),
+`src/krepost/` (инструкция установки: «архив, не удалять»), TRADE-01/02/03
+(против fail-closed — только по явному решению оператора).
+
+---
+
 ## Как читать «сейчас vs потом» для облачных угроз
 
 Крепость встречается с сетью в двух ролях — угрозы у них разные:
