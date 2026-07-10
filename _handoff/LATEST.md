@@ -9,6 +9,10 @@
 
 ---
 
+- chore(ataker, Risk-1): добавлен Ataker-boop/.gitignore — Attack Vault (vault_data/, *.db/sqlite, report*.json) не коммитим (cross-contamination). БД уже раздельны с Trust Registry. Risk 2/3 → ROADMAP (нужна живая модель/железо; коммит f5edd0b).
+- Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/8bacd8d4ac5986c207f3c568be463d23eb756df2
+- Проверка: python -m pytest Ataker-boop/tests/ -q → 45 passed in 0.49s (инструмент не сломан)
+
 - fix(BUG-07): L2/L3-кэш изолирован по версии политики — CacheLayer живёт в подкаталоге policy-<POLICY_VERSION>. Смена версии = другой каталог = старые GREEN-вердикты не проскакивают мимо обновлённого Guard. Version-поля в L2Entry — часть редизайна кэша (ROADMAP).
 - Коммит: https://github.com/dywhhp7f76-code/Krepost-V3/commit/72c617e4b4ac9955aafc66d9f028d2b8ab00c45d
 - Проверка: python -m pytest tests/ Probnoki/ -q → 653 passed, 1 warning in 15.73s (было 650, +3 пробника #39)
