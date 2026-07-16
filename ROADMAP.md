@@ -297,6 +297,29 @@
 > Крепости. Откинуты дубли с существующим ROADMAP, «уже есть», «мимо»,
 > «преждевременно». Статусы: 🔜 — тривиально, кодить скоро; ⏳ — средне/сложно.
 
+> **СВЕРКА СТАТУСОВ (свод V3↔Z, 2026-07-16).** Ряд пунктов ниже помечен 🔜, но
+> УЖЕ реализован в ходе T1–T13 (журнал `_handoff/LATEST.md`, пробники #40–#49,
+> тесты зелёные). Фактически ✅ **сделано:**
+> - **Secret-scanning regex** → T4: Google/GCP/Slack + существующие AWS/GitHub/JWT/PEM (#42).
+> - **Source citations в build_context** → T1 `[src: файл#чанк]` (#40).
+> - **Immutable raw + no-LLM-rewrite** → T2 type=raw/derived (#41).
+> - **LLM-judge недетерминизм фикс** → T9 temp=0 + Qwen3Guard native-parser + majority-vote (#46/#47).
+> - **`icl_reorder` мутатор** → T10 (Ataker, 17 мутаторов).
+> - **Guardrail-метрики + алерт** (из основного ROADMAP) → T8 `alerts.py` + `/metrics/prometheus` + pii_filter_healthy (#43/#48).
+> - **Prompt-integrity** → T5 `governance/integrity.py` (#44).
+> - **Cross-host redirect / SSRF на 30x** → T6 `url_guard.validate_redirect` (#45).
+>
+> **N/A (проверено, не применимо):** «Unicode-нормализация ПЕРЕД blocklist /
+> reject ord(c)>255» — naive-reject сломал бы кириллицу (русский = кодпоинты
+> >255); Python str не усекает в байты, NFKC уже сворачивает совместимость.
+> Оставляем как есть.
+>
+> **Реальный остаток (доделывается здесь):** instruction-span детектор,
+> MCP-output hardening, few-shot recency ordering, deterministic dedup,
+> semantic chunker, каталог манипулятивных сигнатур, connect-time IP pinning,
+> SMART_CACHE батч-flush. **Гейтнуто железом/research:** vLLM/MLX, PAW,
+> MemoryRouter, OCC-RAG, RAG-benchmark, Safety Kernel, RSI-каркас, dual-channel debate.
+
 ### 🛡 defense — Layer 1-4, guards
 
 #### Instruction-span детектор в tool/MCP/RAG output  🔜 ⭐
