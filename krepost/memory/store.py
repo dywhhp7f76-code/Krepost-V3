@@ -32,7 +32,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from krepost.memory.chunker import chunk_text
+from krepost.memory.chunker import chunk_markdown, chunk_text
 from krepost.security.tool_guard import ToolOutputGuard
 
 try:
@@ -86,6 +86,7 @@ class MemoryStore:
         confidence_threshold: float = 0.6,
         chunk_max_chars: int = 800,
         chunk_overlap: int = 100,
+        markdown: bool = True,
         ingest_guard: Optional[ToolOutputGuard] = None,
     ):
         self.embedder = embedder
@@ -94,6 +95,10 @@ class MemoryStore:
         self.confidence_threshold = confidence_threshold
         self.chunk_max_chars = chunk_max_chars
         self.chunk_overlap = chunk_overlap
+        # Хранилище — Obsidian-markdown, поэтому по умолчанию semantic-чанкинг по
+        # заголовкам (чанк несёт крошки H1>H2 и не слипается с чужим разделом).
+        # markdown=False → обычный абзацный chunk_text.
+        self.markdown = markdown
         # None по умолчанию отключает ingest-скан; передай ToolOutputGuard, чтобы
         # включить проверку контента перед записью.
         self.ingest_guard = ingest_guard
@@ -121,7 +126,8 @@ class MemoryStore:
                 text = verdict.output
                 sanitized = True
 
-        chunks = chunk_text(text, self.chunk_max_chars, self.chunk_overlap)
+        chunker = chunk_markdown if self.markdown else chunk_text
+        chunks = chunker(text, self.chunk_max_chars, self.chunk_overlap)
         if not chunks:
             return AddResult(doc_id, 0, sanitized=sanitized)
 
@@ -146,7 +152,8 @@ class MemoryStore:
                 text = verdict.output
                 sanitized = True
 
-        chunks = chunk_text(text, self.chunk_max_chars, self.chunk_overlap)
+        chunker = chunk_markdown if self.markdown else chunk_text
+        chunks = chunker(text, self.chunk_max_chars, self.chunk_overlap)
         if not chunks:
             return AddResult(doc_id, 0, sanitized=sanitized)
 
