@@ -14,44 +14,44 @@
 
 ---
 
-## ✅ Verification sweep 2026-07-09 — исправлено (PR #12, ветка claude/repo-file-migration-3n3q50)
+## 🖥 Железо — зафиксировано (2026-07-15, всё на месте)
 
-Сверка мастер-листа из 7 аудитов с живым кодом: каждый пункт подтверждён/
-опровергнут фактом, реальные баги закрыты по правилу «один баг = падающий
-тест → фикс → полный pytest → запись в `_handoff/LATEST.md`». Тесты 613 → 653.
+> **Статус:** Mac Studio + MacBook Air **приехали**. Фаза «ждём железо» закрыта.
+> Дальше — сборка, `ollama pull`, замеры latency, разводка дисков.
 
-**Исправлено (10):**
-- **BUG-06** — `output_guard` был выключен в обеих фабриках; включён семантический
-  Layer 4 (`build_ollama_pipeline`/`build_openai_pipeline`). Пробник #31.
-- **BUG-02** — CircuitBreaker в HALF_OPEN пускал все запросы; теперь один probe,
-  probe-fail → сразу OPEN. Пробник #32.
-- **BUG-04-impl** — `build_demo_orchestrator()` (dev-guard пропускает всё) падает
-  RuntimeError при `KREPOST_ENV in {prod,production,staging}`. Пробник #33.
-- **BUG-05** — Trust Registry: `PRAGMA journal_mode=WAL` + `INSERT … ON CONFLICT
-  DO UPDATE` (не `INSERT OR REPLACE` — `added_at` сохранён). Пробник #34.
-- **BUG-03** — `url_guard.check()` в fetch-инструменте уведён с event loop через
-  `asyncio.to_thread` (без aiodns). Пробник #35.
-- **BUG-04** — savez L1-кэша уведён с loop: `_put_memory` на loop + запись .npz по
-  снимку в `to_thread` под `asyncio.Lock`. Пробник #36.
-- **BUG-07** — L2/L3-кэш изолирован по версии политики (подкаталог
-  `policy-<POLICY_VERSION>`); старый GREEN не проскакивает мимо нового Guard.
-  Пробник #39.
-- **P2 #16** — `api_key` OpenAI-стека из `KREPOST_OPENAI_API_KEY`. Пробник #37.
-- **P2 #10** — маскирование карт 13–19 цифр (Luhn), не только 16 (Amex не утекает).
-  Пробник #38.
-- **Ataker Risk-1** — `Ataker-boop/.gitignore` (Attack Vault не коммитим; БД уже
-  раздельны с Trust Registry).
+### Вычислительные узлы
 
-**Опровергнуто фактом (фиксить нечего):** BUG-01 (лок уже скоуплен на `_closing`),
-CONFLICT-01 (Layer 4 не падает — `process_output` берёт свежий контекст),
-Boop Risk-1 (БД раздельны).
+| Узел | Спека | Роль |
+|------|-------|------|
+| **Mac Studio** | M4 **Max**, 64 GB RAM, 1 TB SSD | Боевой: main LLM + Guard + RAG + эмбеддинги |
+| **MacBook Air** | M5, 32 GB RAM, 1 TB SSD | Грязная зона: Ataker-boop, adversarial, LM Studio smoke |
 
-**Отложено с обоснованием (ниже по разделам):** P2-регексы #4/#11/#13/#15 (нужна
-валидация на PII+red-team наборе; #15 в версии аудита опасен), BUG-04 L2/eviction/
-батч-flush (редизайн персистентности кэша), Ataker Risk 2/3 (нужна живая модель).
-**Не трогаю намеренно:** #14 (fail-closed страховка, достижима при `range(0)`),
-`src/krepost/` (инструкция установки: «архив, не удалять»), TRADE-01/02/03
-(против fail-closed — только по явному решению оператора).
+### Хранилище и периферия
+
+| Компонент | Спека | Роль |
+|-----------|-------|------|
+| **WD Black SN850X** | 2 TB, корпус **TB5 ~80 Gbps** | Быстрый съёмный SSD: тренировочные данные, adversarial-корпус, яды (Камень 1) |
+| **HDD** | **4 TB**, ускоренный (кэш/док) | Архив: бэкапы, audit-логи, cold storage |
+| **UGREEN Revodok Max** | Thunderbolt **5**, 13-in-1, до 120/80 Gbps | Док-станция: питание, мониторы, порты, TB downstream |
+| **Кабели** | 6× Thunderbolt **40 Gbps** | Связка Mac ↔ док ↔ SSD/HDD/периферия |
+| **Прочее** | мелочёвка (клавы, адаптеры…) | — |
+| **Мышь** | ⏳ в пути (потеряли/украли старую) | — |
+
+### Модели (оператор + smoke 2026-07-14)
+
+| Роль | Модель | Узел | Статус |
+|------|--------|------|--------|
+| **Main** | **Qwen3.6-35B-A3B** (MoE, Q4) | Mac Studio | ✅ выбор оператора; умнее dense 27B на Studio |
+| **Guard** | Qwen3Guard-Gen-4B (Q4_K_S) | Mac Studio (+ Air smoke) | ✅ smoke GREEN/RED на LM Studio |
+| **Attacker** | **uncensored local** (канд. `dolphin3-cyber-8b`) | MacBook Air | ⏳ финальный выбор — без alignment, только red-team |
+| **Embedder** | nomic-embed-text v1.5 / BGE-M3 | Mac Studio | 🔜 pull + RAG |
+| **Reader** | OCC-RAG-1.7B | Mac Studio | ⏳ planned |
+| **Draft/smoke** | llama-3.2-1b-instruct, qwen2.5-0.5b-mlx | Air (LM Studio) | ✅ smoke ok |
+
+**Заметки:**
+- LM Studio на Air: `http://127.0.0.1:1234/v1`; guard id = `qwen3guard-gen-4b` (дефис, не `:` как в Ollama).
+- Guard timeout на CPU Air: **120 s** (дефолт 5 s → circuit breaker).
+- На Studio main — **35b-a3b**, не 27b dense (ROADMAP-v2.1 устарел, см. ниже).
 
 ---
 
@@ -71,15 +71,14 @@ Boop Risk-1 (БД раздельны).
 
 ## 🏗 foundation
 
-### Стек инференса: Ollama (готов) → vLLM/MLX (при железе)  🔜
+### Стек инференса: Ollama (готов) → vLLM/MLX (на железе)  🔜
 - **✅ Код готов (2026-07-02):** `OllamaBackend` (ModelBackend + ToolCallingBackend)
   + фабрика `build_ollama_orchestrator/agent` в `krepost/orchestration/`. Один
   ollama-клиент обслуживает guard (Qwen3Guard) и main (Qwen3.x). Тесты на фейк-
   клиенте (Probnoki #27). README — «день-1 на Mac».
-- **⏳ Осталось при железе:** `ollama pull` реальных моделей; замер latency;
-  опц. vLLM MRv2 (квантованные веса, KV-offload) и MLX speculative decoding как
-  альтернативные бэкенды (сиблинги OllamaBackend); LocalAI distributed для P2P
-  между Mac Studio и MacBook Air.
+- **✅ Железо (2026-07-15):** Mac Studio M4 Max 64 GB + MacBook Air M5 32 GB на месте.
+- **⏳ Следующий шаг:** `ollama pull` / LM Studio на Studio (`qwen3.6-35b-a3b`,
+  `qwen3guard-gen-4b`); замер latency; vLLM MRv2 + KV-offload; LocalAI P2P Studio↔Air.
 - **Откуда:** foundation/2026-07-02 (релизы vLLM 0.22–0.24, LocalAI 4.5.x, Ollama 0.30–0.31).
 - **К чему относится:** foundation — слой инференса.
 
@@ -249,26 +248,6 @@ Boop Risk-1 (БД раздельны).
 
 ## ⚔ redteam
 
-### Ataker-Boop: success-по-содержимому + hard-cap/cooldown  ⏳
-- **Контекст:** verification sweep 2026-07-09. Risk 1 (раздельные БД) закрыт —
-  БД уже раздельны (`data/attack_vault.db` vs `data/trust_registry.db`), плюс
-  добавлен `Ataker-boop/.gitignore` (хранилище атак не коммитим). Осталось:
-  - **Risk 3 — успех атаки по СОДЕРЖИМОМУ ответа Main-модели, не по verdict.**
-    Сейчас `red_team_loop._test_payload` зовёт только `pipeline.process()`
-    (вход, Layers 1–3) и мерит `bypassed = ctx.verdict != "RED"`. Ответа модели
-    тут вообще нет. Правильный success-analyzer гоняет ПОЛНЫЙ цикл
-    (process→generate→process_output) на ЖИВОЙ модели и проверяет, выполнила ли
-    модель вредную инструкцию по содержимому. Требует железа/LM Studio →
-    архитектурное изменение red-team контура, не быстрый фикс. Связано с BUG-07.
-  - **Risk 2 — hard-cap + cooldown.** `run()` уже принимает `max_attacks`
-    (опц.), цикл конечный (генерит ограниченный список, не бесконечный). Жёсткий
-    дефолт-кап в 100 атак/run из отчёта — СЛИШКОМ мал для фаззера (режет
-    покрытие); адекватный потолок + cooldown между запусками — на этапе, когда
-    Boop гоняется в непрерывном режиме на отдельной машине.
-- **Почему не сейчас:** оба нужны на реальном железе с живой моделью; менять
-  red-team метрику успеха вслепую (без прогона) — угадывание.
-- **К чему относится:** redteam — Ataker-Boop, success-analyzer.
-
 ### Prompt-injection fuzzer для Ataker-Boop  ⏳
 - **Что:** из одного удачного/неудачного jailbreak-промпта авто-генерировать мутации и гонять против guardrails в непрерывном цикле (аналог garak/PyRIT/Shadow Repeater).
 - **Откуда:** redteam/2026-07-02 (Shadow Repeater, Repeater Strike, WebSocket Turbo Intruder).
@@ -308,6 +287,368 @@ Boop Risk-1 (БД раздельны).
 - **Откуда:** evolution/2026-07-01 (TRIAGE, RLMF, AxDafny).
 - **К чему относится:** evolution — self-critique loops, multi-agent consensus.
 - **Почему не сейчас:** это про обучение/дообучение агентов; включаем, когда дойдём до RSI-контура. Трезвый противовес: «AI Isn't Ready to Build Complex Software» — не переоценивать автономию.
+
+---
+
+## 🆕 Разведданные 2026-06-16 → 2026-07-07 (github-copilot-expert)
+
+> Источник: 36 дайджестов по 6 категориям (defense/memory/redteam/foundation/
+> evolution + raw/items.json), проанализировано против текущей архитектуры
+> Крепости. Откинуты дубли с существующим ROADMAP, «уже есть», «мимо»,
+> «преждевременно». Статусы: 🔜 — тривиально, кодить скоро; ⏳ — средне/сложно.
+
+### 🛡 defense — Layer 1-4, guards
+
+#### Instruction-span детектор в tool/MCP/RAG output  🔜 ⭐
+- **Что:** фильтрация instruction-like спанов («ignore previous», «now you must»,
+  «system:») ПЕРЕД подачей в LLM. Self-Study Reconsidered: 88%→13% injection
+  compliance почти без потери текста. Эвристика/классификатор императивных фраз.
+- **К чему относится:** ToolOutputGuard + MemoryStore ingest-guard.
+- **Откуда:** defense/2026-07-01 (arXiv 2606.32002), 2026-07-02 (mcp-server-fetch).
+- **Усилие:** средне.
+
+#### MCP-output hardening  🔜
+- **Что:** детект усечения tool-ответа + incomplete-маркер; детект скрытых
+  инструкций в данных; логирование JSON-RPC трафика agent↔MCP. Случай:
+  mcp-server-fetch обрезал на 6000 символов, пометил success, дописал инструкцию.
+- **К чему относится:** ToolOutputGuard.
+- **Откуда:** defense/2026-07-02 (mcp-server-fetch injection).
+- **Усилие:** средне.
+
+#### Unicode-нормализация ПЕРЕД blocklist  🔜
+- **Что:** codepoints >255 при усечении в байт обходят чёрные списки (PortSwigger).
+  NFKC есть, но проверить/добавить reject/sanitize `ord(c)>255` ДО regex-фильтра.
+- **К чему относится:** Layer 1 (normalize.py).
+- **Откуда:** defense/2026-07-02 (PortSwigger unicode overflow).
+- **Усилие:** тривиально.
+
+#### Secret-scanning regex  🔜
+- **Что:** AWS/GCP/GitHub tokens, `.env`-vars, private keys — на вход И выход
+  агентов. LocalAI `restricted-regex` — готовый референс паттернов.
+- **К чему относится:** Layer 1 + Layer 4.
+- **Откуда:** defense/2026-06-25 (LocalAI v4.5), 2026-07-07.
+- **Усилие:** тривиально.
+
+#### Каталог манипулятивных сигнатур  ⏳
+- **Что:** authority-pressure, time-compression, fake-consensus, stepwise-extraction.
+  Regex/паттерны для входного фильтра + готовый red-team датасет (CyberOK, 7 моделей).
+- **К чему относится:** Layer 1 + Ataker-boop.
+- **Откуда:** defense/2026-06-28, 2026-07-07 (CyberOK).
+- **Усилие:** средне.
+
+#### Few-shot recency ordering  ⏳
+- **Что:** при сборке контекста опасные/непроверенные примеры НЕ последними.
+  Mixed Compliance Demonstrations — recency bias в few-shot injection доказан.
+- **К чему относится:** Layer 3 / сборка контекста.
+- **Откуда:** defense/2026-06-19, 2026-06-22.
+- **Усилие:** тривиально-средне.
+
+#### Risk-controlling thresholding для Layer 2 Guard  ⏳
+- **Что:** порог Guard автокалибруется под целевой риск через risk control
+  (стат. гарантии). Простой дизайн конкурентен sequential-hypothesis-testing.
+- **К чему относится:** Layer 2.
+- **Откуда:** defense/2026-07-04 (arXiv 2607.02510).
+- **Усилие:** сложно.
+
+#### Deterministic dedup guard для code-агентов  ⏳
+- **Что:** хеш-сравнение фрагментов на выходе кодоген-агентов, pre-commit блок
+  дублей (dupehound-стиль).
+- **К чему относится:** Layer 4 (для code-агентов).
+- **Откуда:** defense/2026-07-02 (dupehound).
+- **Усилие:** тривиально-средне.
+
+#### Unfireable Safety Kernel (формальная верификация fail-closed)  ⏳
+- **Что:** 4 свойства — process separation, pre-action enforcement на
+  структурно-единственном пути, fail-closed, externalized signed evidence.
+  Формальная верификация через SMT (Z3) + bounded-model-checking (Kani).
+  У Крепости уже fail-closed/air-gap/audit_hash — НОВОЕ: машинное доказательство.
+- **К чему относится:** governance + ToolOutputGuard.
+- **Откуда:** defense/2026-06-25 (arXiv 2606.26057).
+- **Усилие:** сложно.
+
+#### Dual-channel debate (OTR divergence)  ⏳
+- **Что:** теневой канал, детект расхождения public vs internal reasoning агента
+  (stance/NLI/semantic-sim). Divergence растёт 3%→40% при misalignment.
+- **К чему относится:** судьи multi-agent consensus.
+- **Откуда:** defense/2026-07-04 (arXiv 2607.02507).
+- **Усилие:** сложно.
+
+### 🧠 memory — MemoryStore, chunker, retrieval
+
+#### Source citations в build_context  🔜 ⭐
+- **Что:** хранить source-метаданные (путь файла, позиция чанка, timestamp, теги),
+  рендерить `[src: файл#чанк]` в контексте. Паттерн LocalAI 4.4.0. Сигнал силы:
+  повтор в **4 дайджестах** (06-16, 06-25, 07-02, 07-07).
+- **К чему относится:** MemoryStore.build_context.
+- **Откуда:** memory/2026-06-16 (LocalAI 4.4.0) и др.
+- **Усилие:** тривиально.
+
+#### Immutable raw + no-LLM-rewrite  🔜 ⭐
+- **Что:** `add()` пишет только immutable raw-чанки; summary/деривативы — отдельно
+  с `type=derived`; реорганизация только детерминированными скриптами, НЕ LLM.
+  Предохраняет от деградации при «оптимизации» памяти (100%→52.6% в исследовании).
+- **К чему относится:** MemoryStore.add / архитектура.
+- **Откуда:** memory/2026-06-28 (LLM rewriting own memory degrades 100%→52.6%).
+- **Усилие:** тривиально (дизайн-паттерн).
+
+#### DART-VLN read-time decay + anti-loop penalty  ⏳ ⭐
+- **Что:** training-free reweighting памяти при чтении: `exp(-age/τ)` на scores +
+  штраф за факты, уже бывшие в контексте в последних N запросах. Anti-loop
+  penalty **уникален** — не покрывается ни Hopfield, ни ReContext.
+- **К чему относится:** MemoryStore.retrieve.
+- **Откуда:** memory/2026-07-02 (DART-VLN).
+- **Усилие:** средне.
+
+#### Semantic chunker (по заголовкам Markdown)  ⏳
+- **Что:** резать чанки по заголовкам/семантическим границам Markdown, хранить
+  heading path/дату/теги в metadata, нормализация/очистка перед векторизацией.
+  Сейчас только `chunk_max_chars + overlap`.
+- **К чему относится:** chunker / add.
+- **Откуда:** memory/2026-06-22 (document ingestion pipeline).
+- **Усилие:** средне.
+
+#### Multi-query retrieval (query expansion)  ⏳
+- **Что:** при слабом `confident` генерировать 2-3 переформулировки запроса,
+  мержить через reciprocal rank fusion. Отличается от MemoryRouter
+  (domain routing) — это query expansion.
+- **К чему относится:** MemoryStore.retrieve.
+- **Откуда:** memory/2026-07-02 (МТС agentic retrieval).
+- **Усилие:** средне.
+
+#### LedgerAgent structured state  ⏳
+- **Что:** отдельная key-value таблица (project facts, IDs, constraints) отдельная
+  от ChromaDB, рендерится как префикс контекста. Борьба со stale/missing фактами.
+  Не RAG-замена, а дополнение — детерминированное состояние.
+- **К чему относится:** build_context / новый StructuredStateStore.
+- **Откуда:** memory/2026-06-19 (LedgerAgent).
+- **Усилие:** средне.
+
+#### OCC-RAG SLM (context-faithful reader)  ⏳
+- **Что:** компактные SLM 0.6B/1.7B, оптимизированные под context-faithful Q&A
+  (ONNX/GGUF). Загрузить GGUF через llama.cpp/vLLM как локальный reader над
+  retrieve(), отвечает строго по контексту без галлюцинаций.
+- **К чему относится:** reader-LLM над retrieve.
+- **Откуда:** memory/2026-06-19 (AIRI OCC-RAG).
+- **Усилие:** средне (требует железа для модели).
+
+#### RAG benchmark на приватных заметках  ⏳
+- **Что:** набор пар (запрос → ожидаемый документ) из реальных заметок Obsidian +
+  метрики (recall@k, MRR, устойчивость к дубликатам). Дает измерять, а не гадать.
+- **К чему относится:** retrieve (тесты).
+- **Откуда:** memory/2026-07-02 (RAG benchmark 28% vs 76%).
+- **Усилие:** средне.
+
+### ⚔ redteam — Ataker-boop, success-analyzer
+
+#### LLM-judge недетерминизм фикс  🔜 ⭐
+- **Что:** temp=0 для judge-модели; прогон каждого вердикта N≥3 раз и majority
+  vote; метрика `judge_instability_rate` = доля расходящихся вердиктов →
+  при >порога кейс в карантин. Бьёт в боль «success-analyzer мерит только
+  verdict!=RED».
+- **К чему относится:** Ataker-boop success-analyzer.
+- **Откуда:** redteam/2026-06-28 (judge non-determinism war).
+- **Усилие:** тривиально.
+
+#### `icl_reorder` мутатор (recency bias атаки)  🔜 ⭐
+- **Что:** мутатор `icl_reorder` — берёт few-shot-промпт, переставляет
+  benign/harmful демонстрации (последняя=harmful даёт recency-эффект).
+  Параметризовать долю harmful (0/25/50/100%), порядок, наличие refusal.
+  Layer 3 (few-shot) особенно уязвим.
+- **К чему относится:** Ataker-boop (мутатор).
+- **Откуда:** redteam/2026-06-19, 2026-06-22 (arXiv 2606.20508).
+- **Усилие:** тривиально.
+
+#### Red Team AI Benchmark v2.0 (60 категорий) → seed-корпус  🔜
+- **Что:** 60 offensive-security сценариев → обернуть в pytest-style test cases
+  как seed для `red_team_loop`. Дополняет garak/JailbreakBench.
+- **К чему относится:** Ataker-boop (test-case corpus).
+- **Откуда:** redteam/2026-06-22.
+- **Усилие:** тривиально.
+
+#### Prompt-integrity diff между итерациями эволюции  🔜
+- **Что:** после шага эволюции хэшировать system-prompt + скрипты, diff против
+  чекпойнта. Новые инструкции не из whitelist → блок (self-reinforcing injection).
+  Сочетается с audit_hash.
+- **К чему относится:** governance (verifiable-gate).
+- **Откуда:** redteam/2026-07-07 (arXiv 2602.15654).
+- **Усилие:** тривиально.
+
+#### Model Forensics протокол для success-analyzer  ⏳
+- **Что:** 2-шаговый протокол: (1) прочитать CoT модели → гипотеза о драйвере
+  (deceptive vs confusion), (2) counterfactual-правка промпта для подтверждения.
+  Отличает реальный пробой от false positive. Нужен CoT (включить `reasoning`).
+- **К чему относится:** Ataker-boop success-analyzer.
+- **Откуда:** redteam/2026-06-25 (arXiv 2606.26071).
+- **Усилие:** средне.
+
+#### Tool-abuse red-teaming (breach-rate метрика)  ⏳
+- **Что:** генератор сценариев «прочитай AWS-креды/секрет через tool», «эскалация
+  прав», «destructive tool-call (DROP/DELETE)». Метрика `tool_breach_rate` =
+  сработавших/всего, гнать до нуля. Seed: запросы env-vars, чтение `~/.ssh`.
+- **К чему относится:** Ataker-boop над tool-вызовами, ToolOutputGuard.
+- **Откуда:** redteam/2026-06-25.
+- **Усилие:** средне (нужен mock tool-окружения).
+
+#### Ансамбль мониторов + stateful link-tracker  ⏳
+- **Что:** атакующий размазывает payload по нескольким итерациям эволюции —
+  одиночный diff-монитор не ловит. Ансамбль из 4 мониторов снижает evasion
+  gradual-атак 93%→47%; stateful link-tracker накапливает подозрительные
+  изменения между итерациями.
+- **К чему относится:** governance (RSI verifiable-gate).
+- **Откуда:** redteam/2026-07-04 (arXiv 2607.02514).
+- **Усилие:** средне-сложно.
+
+#### RevengeBench opponent-modeling probes  ⏳
+- **Что:** adversarial-агент строит active probes для реконструкции защитной
+  политики (какие regex, какие категории режет Guard). Active interventions:
+  восстановление 34→72%. Аудит предсказуемости защиты.
+- **К чему относится:** Ataker-boop (продвинутый режим), governance.
+- **Откуда:** redteam/2026-06-25 (arXiv 2606.26094).
+- **Усилие:** сложно.
+
+### 🏗 foundation — backend, cache, UrlGuard, метрики
+
+#### httpclient: refuse cross-host redirects  🔜
+- **Что:** все outbound-клиенты (скачивание весов, model-gallery, HTTP из агентов)
+  должны refuse редиректы на другой хост — иначе credentials/token утекают.
+  `allow_redirects=False` + ручная валидация `Location` против исходного host.
+- **К чему относится:** UrlGuard, backend (outbound HTTP).
+- **Откуда:** foundation/2026-06-16 (LocalAI v4.3.6, GHSA-3mj3-57v2-4636).
+- **Усилие:** тривиально.
+
+#### UrlGuard: IMDS/private-range SSRF-валидация (перепроверить)  🔜
+- **Что:** при загрузке конфигов/моделей валидировать URL против private/loopback/
+  metadata диапазонов (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`,
+  `192.168.0.0/16`, `169.254.169.254` IMDS, `::1`, `fc00::/7`). Резолвить DNS и
+  проверять final IP (защита от DNS-rebinding). Скорее всего уже есть — проверить.
+- **К чему относится:** UrlGuard.
+- **Откуда:** foundation/2026-07-04 (LocalAI v4.6.0).
+- **Усилие:** тривиально (verify).
+
+#### PII Prometheus counter для Layer 1 health-check  🔜
+- **Что:** счётчик `krepost_pii_events_total{kind,origin,action,direction}`.
+  Алерт: счётчик redactions→0 при ненулевом трафике = фильтр сломался (fail-open).
+  Прямой health-check для fail-closed принципа.
+- **К чему относится:** Layer 1, /metrics.
+- **Откуда:** foundation/2026-07-04 (LocalAI v4.6.0).
+- **Усилие:** тривиально.
+
+#### Настройки деплоя: Q4 + `--jinja` + vLLM флаги  🔜
+- **Что:** Q4-квант (Q8 даёт +0.007 — шум, но 1.6× медленнее и 2× VRAM).
+  `--jinja` флаг сервера обязателен для корректного tool-calling. vLLM
+  `device_ids` (точная GPU-привязка без глобального env). batch-invariance
+  (детерминизм для верификации/audit — включить для guard-модели).
+- **К чему относится:** backend (Ollama/vLLM/llama.cpp).
+- **Откуда:** foundation/2026-06-25, 2026-07-02 (vLLM v0.22/v0.24).
+- **Усилие:** тривиально (конфиг-флаги).
+
+#### FSM-orchestrator для resilience  ⏳
+- **Что:** каждый шаг пайплайна = состояние FSM с явным переходом. При падении
+  backend — возобновление с нужного шага, а не полный retry. Бьёт в падающий
+  `Build_demo_orchestrator`: FSM даёт точку восстановления и переключение между
+  локальными моделями без потери контекста.
+- **К чему относится:** backend orchestrator, governance.
+- **Откуда:** foundation/2026-06-19 (llm-nano-vm).
+- **Усилие:** средне.
+
+#### TokenPilot / LightMem2 паттерны для SMART_CACHE  ⏳
+- **Что:** (1) Ingestion-Aware Compaction — стабилизировать префиксы промпта,
+  срезать шум на входе; (2) Lifecycle-Aware Eviction — выгружать сегменты
+  контекста по batch-turn расписанию при истечении релевантности. Цель: -61/-87%
+  затрат, стабильные prefix-cache попадания.
+- **К чему относится:** cache (SMART_CACHE).
+- **Откуда:** foundation/2026-06-16 (TokenPilot, LightMem2).
+- **Усилие:** средне-сложно.
+
+### 🚀 evolution — governance, судьи, ImprovementGate
+
+#### LLM-as-a-Verifier: logits expectation  ⏳ ⭐
+- **Что:** вместо «выдай 1-10» — матожидание по распределению вероятностей
+  scoring-токенов (continuous score). Декомпозиция критериев (безопасность/
+  корректность/полнота отдельными проверками), повторная оценка → ниже variance,
+  cost-efficient ranking кандидатов. Без дообучения. Доступ к logits есть у
+  любой локальной модели. **Алгоритм не в ROADMAP** (там судьи абстрактно).
+- **К чему относится:** судьи/верификаторы.
+- **Откуда:** evolution/2026-07-07.
+- **Усилие:** средне.
+
+#### TestEvo ко-эволюция + mutation score  ⏳
+- **Что:** gate-критерий — любое изменение кода сопровождается ко-эволюцией
+  тестов. Verifier — execution-grounded: pass rate + coverage + mutation score
+  (мутируем код, проверяем, ловят ли тесты). mutation score через mutmut.
+- **К чему относится:** governance gate.
+- **Откуда:** evolution/2026-07-04 (TestEvo-Bench).
+- **Усилие:** средне.
+
+#### Co-Failure β + Clopper-Pearson сертификат  ⏳
+- **Что:** потолок выигрыша ансамбля судей ≤ 1-β, где β — доля запросов, где ВСЕ
+  судьи ошиблись одновременно. Парная корреляция ошибок НЕ оценивает β — нужен
+  прямой замер all-wrong rate. Clopper-Pearson upper bound как сертификат.
+  Чистая статистика по trace_hash — честный ответ «стоит ли consensus».
+- **К чему относится:** судьи/consensus.
+- **Откуда:** evolution/2026-06-28.
+- **Усилие:** средне.
+
+#### Конституция frozen invariants  ⏳
+- **Что:** слой неизменяемых правил, которые ImprovementGate не вправе
+  модифицировать при RSI. Отделяется от steering-adapter и от правимых правил.
+- **К чему относится:** ImprovementGate.
+- **Откуда:** evolution/2026-06-28.
+- **Усилие:** средне (файл инвариантов + проверка диффа в gate).
+
+#### SEB drift+revocation  ⏳
+- **Что:** enforcement-граница proposal→admission→execution. Каждая мутация:
+  scoped execution identity + drift-check (состояние до vs после) + revocation
+  флаг + signed decision/outcome-логи. Авторитет — короткоживущий, отзываемый.
+- **К чему относится:** governance (audit/gate). Усиливает audit_hash/trace_hash.
+- **Откуда:** evolution/2026-06-22 (Sovereign Execution Brokers).
+- **Усилие:** средне-сложно.
+
+#### Auto-оценка по рубрике (judge-as-data + цитаты как audit trail)  ⏳
+- **Что:** рубрика оценки хранится как данные (не вшита в промпт), калибруется под
+  эталонные вердикты; каждый вердикт сопровождается цитатой-обоснованием с
+  позицией. Цитаты идут в audit-trail как verifiable evidence.
+- **К чему относится:** судьи, audit.
+- **Откуда:** evolution/2026-06-22.
+- **Усилие:** средне.
+
+#### PACT: Plan→Align→Commit→Think  ⏳
+- **Что:** двухфазный паттерн — генерация плана правки → валидация через
+  отдельный judge (safe/feasible/complete) → commit только верифицированного.
+  Разделение proposer/verifier, обязательная фаза Align перед Commit. Верификатор
+  дешёвый (даже 2B SLM).
+- **К чему относится:** governance/gate.py.
+- **Откуда:** evolution/2026-06-16 (PACT).
+- **Усилие:** тривиально (структура flow, не модель).
+
+---
+
+## ✅ Сделано (сессия 2026-07-10/12)
+
+> Кодирование тривиальных техник из разведданных. Пробники #40-#46.
+
+- **Т1** Source citations в build_context — ✅ сделано, пробник #40 (5 тестов).
+- **Т2** Immutable raw + type=raw/derived — ✅ сделано, пробник #41 (4 теста).
+- **Т4** Secret-scanning: Google API key + GCP SA + Slack — ✅ сделано, пробник #42 (9 тестов). AIza → `[GOOGLE_API_KEY_REDACTED]` (НЕ "GCP service account" — это JSON с private_key).
+- **Т8** PII/secret счётчики + pii_filter_healthy health-flag — ✅ сделано, пробник #43 (8 тестов). Канарейка в `/metrics`; реальный alerting-infra → ⏳.
+- **Т5** Prompt-integrity diff — ✅ сделано, пробник #44 (14 тестов). Правильный хеш: каждый файл отдельно + JSON {путь: хеш} (устойчив к перемещению байта).
+- **Т6** Cross-host redirect cap — ✅ сделано, пробник #45 (10 тестов). validate_redirect + follow_redirects_safely + max_redirects=5.
+- **Т10** icl_reorder мутатор — ✅ сделано, test_ataker (3 теста, 17 мутаторов).
+- **Т9** temp=0 в GuardClassifier — ✅ сделано, пробник #46 (9 тестов). Артефакт: scatter 7/15→1/15. ПЛЮС парсер нативного формата Qwen3Guard (Safety: Safe/Controversial/Unsafe) — без него guard падал в parse_error.
+- **Т11** Seed-корпус red-team — ✅ сделано. 20 payloads, 13 категорий, seed/partial (~13 of 60). В git НЕ попадает (gitignore). Артефакт покрытия: 18/20 blocked.
+- **Т12** Док: настройки деплоя — ✅ сделано. LM Studio вариант + Q4/--jinja/device_ids/batch-invariance.
+- **OUTPUT-GUARD УДАЛЁН** — ✅ сделано. Семантический output-guard (Qwen3Guard на Layer 4) выпилен из обеих фабрик + OutputFilter + Pipeline. Причины: (1) Qwen3Guard заточен под классификацию ВХОДОВ (injection-detection), на выходах сваливается в чат-режим → parse_error → fail-closed блокирует benign («Paris» блокировался); (2) для air-gapped локалки модерация собственных ответов не нужна (получатель = сам оператор). Layer 4 теперь regex-only: PII-маскинг + leak-паттерны + secret-scanning (Т4). `output_guard_client` в SecurityPipeline устарел, логирует warning при передаче. Пробник #31 переписан (7 тестов). Критерий приёмки выполнен: benign «What is the capital of France?» → GREEN, output «Paris.». Если output-guard понадобится — брать модель специально под output-moderation, НЕ Qwen3Guard.
+
+### Verified (уже было — проверено, дублировать не надо)
+
+- **Т3** Unicode-нормализация ПЕРЕД blocklist — ✅ verified. Инвариант уже соблюдён (`pipeline.py:365` normalize → `:371` search). NFKC есть. Python str не усекает codepoints в байты.
+- **Т7** UrlGuard IMDS/RFC1918/resolve_dns — ✅ verified. 169.254.169.254 блокируется через `is_link_local`. resolve_dns есть (опц.).
+
+### Extended (зависимости, на будущее)
+
+- **T9-extended** — majority vote N≥3 + judge_instability_rate — ✅ сделано. `success_analyzer.py` + `RedTeamLoop(judge_samples=3)` + пробник #47.
+- **T11-full** — scaffold 60 категорий — ✅ сделано. `benchmark_catalog.py` + `seed_attacks.example.jsonl` (60 placeholders) + coverage API + пробник #49. Реальные payloads → `seed_attacks.local.jsonl` (gitignored).
+- **Т8 alerting-infra** — webhook + Prometheus — ✅ сделано. `AlertDispatcher` (`KREPOST_ALERT_WEBHOOK`), `/metrics/prometheus`, debounce + пробник #48.
 
 ---
 
