@@ -50,6 +50,7 @@ class ToolOutputVerdict:
     output: str
     reason: Optional[str] = None
     stripped_spans: List[str] = field(default_factory=list)
+    truncated: bool = False
 
     @property
     def safe(self) -> bool:
@@ -75,9 +76,25 @@ class ToolOutputGuard:
         r"(?i)\bplease (ignore|disregard|forget) (everything|all|the) (above|previous|prior)\b",
     ]
 
+    # MCP-output hardening: признаки усечения ответа. Флаг информационный —
+    # модель/вызывающий должны знать, что данные неполные (кейс mcp-server-fetch:
+    # обрезка на N символов + success + дописанная инструкция).
+    TRUNCATION_MARKERS = [
+        r"(?i)\b(output|content|response|result|text|data)\s+(is\s+)?truncat(ed|ion)\b",
+        r"(?i)\[\s*(content\s+)?truncated\s*\]",
+        r"(?i)<\s*truncated\s*>",
+        r"\[\s*…\s*\]",            # […]
+        r"(?i)\btruncated\s+(due to|because|at)\b",
+        r"(?i)\b(max|content)[- ]?length\s+(exceeded|reached|limit)\b",
+    ]
+
     def __init__(self, regex_filter: Optional[RegexFilter] = None):
         self.layer1 = regex_filter or RegexFilter()
         self._instr = [re.compile(p) for p in self.INSTRUCTION_IN_DATA]
+        self._trunc = [re.compile(p) for p in self.TRUNCATION_MARKERS]
+
+    def _is_truncated(self, text: str) -> bool:
+        return any(rx.search(text) for rx in self._trunc)
 
     def check(self, tool_output: str, tool_name: str = "") -> ToolOutputVerdict:
         if not tool_output:
@@ -117,12 +134,15 @@ class ToolOutputGuard:
             else:
                 kept.append(line)
 
+        truncated = self._is_truncated(tool_output)
+
         if stripped:
             return ToolOutputVerdict(
                 "sanitized",
                 "\n".join(kept),
                 reason="instruction_in_data",
                 stripped_spans=stripped,
+                truncated=truncated,
             )
 
-        return ToolOutputVerdict("safe", tool_output)
+        return ToolOutputVerdict("safe", tool_output, truncated=truncated)
