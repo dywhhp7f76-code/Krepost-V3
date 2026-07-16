@@ -9,6 +9,14 @@
 
 ---
 
+- feat(defense): MCP-output hardening — ToolOutputVerdict.truncated + распознавание маркеров усечения ([truncated], output truncated, […], max-length exceeded). Кейс mcp-server-fetch. Инъекция после обрезки по-прежнему блокируется.
+- Коммит: 734314a feat(defense): MCP-output hardening — детект усечения
+- Проверка: python -m pytest tests/ Probnoki/ -q → 755 passed (пробник #51, +6)
+
+- feat(memory): semantic chunker — chunk_markdown режет по заголовкам Markdown, несёт крошки H1>H2 в каждый чанк, не слипается через границы; MemoryStore markdown=True. Фолбэк на chunk_text без заголовков.
+- Коммит: e2c854d feat(memory): semantic chunker — markdown-header-aware
+- Проверка: python -m pytest tests/ Probnoki/ -q → 749 passed (пробник #50, +7)
+
 - merge: сведение линий Krepost-V3 ↔ Krepost_Z в одну. Krepost_Z оказался тем же проектом на ~10 задач впереди (содержит все BUG-фиксы V3 дословно + T8-T13, пробники #40-#49, live-model прогоны на приехавшем железе). Взят код-суперсет Z: alerts.py, integrity.py, success_analyzer.py, benchmark_catalog.py, redirect-guard, async-memory, PII/secret-метрики, обновлённые Ataker. КОНФЛИКТ BUG-06 разрешён по подтверждению оператора: семантический output-guard ВЫКЛ (система не выдаёт ответы наружу; Qwen3Guard = input-классификатор), Layer 4 regex-only. Доки/журнал/ROADMAP подтянуты из Z (железо приехало, модели выбраны).
 - Коммит: d9108a3 merge: свод кода V3 ↔ Krepost_Z (T8-T13, #40-#49)
 - Проверка: python -m pytest tests/ Probnoki/ -q → 742 passed, 1 warning; PYTHONPATH=Ataker-boop pytest Ataker-boop/tests/ -q → 51 passed.
