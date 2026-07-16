@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import secrets
 import time
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict, Any, Callable
@@ -22,6 +23,11 @@ from loguru import logger
 from ataker.generator import AttackGenerator, AttackPayload, AttackCategory
 from ataker.vault import AttackVault
 from ataker.mutations import MutationEngine
+from ataker.success_analyzer import (
+    analyze_verdicts,
+    DEFAULT_JUDGE_SAMPLES,
+    DEFAULT_INSTABILITY_THRESHOLD,
+)
 
 
 @dataclass
@@ -33,6 +39,10 @@ class RedTeamResult:
     confidence: float
     latency_ms: float
     bypassed: bool
+    errored: bool = False
+    judge_verdicts: List[str] = field(default_factory=list)
+    judge_instability_rate: float = 0.0
+    quarantined: bool = False
 
     @property
     def success(self) -> bool:
@@ -54,6 +64,8 @@ class RedTeamReport:
     by_mutation: Dict[str, Dict[str, int]]
     weaknesses: List[Dict[str, Any]]
     duration_sec: float
+    judge_instability_rate: float = 0.0
+    quarantined_count: int = 0
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -84,6 +96,13 @@ class RedTeamReport:
             for w in self.weaknesses[:10]:
                 lines.append(f"  - [{w.get('category')}] {w.get('description', '')[:100]}")
 
+        if self.quarantined_count:
+            lines.append("")
+            lines.append(
+                f"КАРАНТИН (нестабильный judge): {self.quarantined_count} "
+                f"(avg instability {self.judge_instability_rate:.1%})"
+            )
+
         return "\n".join(lines)
 
 
@@ -105,6 +124,8 @@ class RedTeamLoop:
         mutation_engine: MutationEngine | None = None,
         session_id: str = "red-team",
         seed: int | None = None,
+        judge_samples: int = 1,
+        instability_threshold: float = DEFAULT_INSTABILITY_THRESHOLD,
     ):
         self._pipeline = pipeline
         self._mutation_engine = mutation_engine or MutationEngine(seed=seed)
@@ -113,6 +134,8 @@ class RedTeamLoop:
         )
         self._vault = vault
         self._session_id = session_id
+        self._judge_samples = max(1, judge_samples)
+        self._instability_threshold = instability_threshold
         self._results: List[RedTeamResult] = []
 
     async def run(
@@ -125,7 +148,10 @@ class RedTeamLoop:
         on_result: Callable[[RedTeamResult], None] | None = None,
     ) -> RedTeamReport:
         """Запустить полный цикл red team тестирования."""
-        run_id = f"rt-{int(time.time())}-{hashlib.md5(str(time.time()).encode()).hexdigest()[:6]}"
+        # Раньше: hashlib.md5(str(time.time())) от того же time.time() — два
+        # прогона в одну секунду давали одинаковый run_id. Теперь случайный
+        # токен из 6 hex-символов (через secrets — криптографически стойкий).
+        run_id = f"rt-{int(time.time())}-{secrets.token_hex(3)}"
         start_time = time.time()
         self._results = []
 
@@ -200,39 +226,84 @@ class RedTeamLoop:
     async def _test_payload(self, payload: AttackPayload) -> RedTeamResult:
         """Прогнать один payload через SecurityPipeline."""
         start = time.perf_counter()
+        samples = self._judge_samples
 
         try:
-            ctx = await self._pipeline.process(
-                payload.mutated, self._session_id
+            if samples < DEFAULT_JUDGE_SAMPLES:
+                ctx = await self._pipeline.process(
+                    payload.mutated, self._session_id
+                )
+                latency = (time.perf_counter() - start) * 1000
+                bypassed = ctx.verdict != "RED"
+                return RedTeamResult(
+                    payload=payload,
+                    actual_verdict=ctx.verdict,
+                    actual_layer=ctx.violation_layer,
+                    confidence=ctx.confidence,
+                    latency_ms=latency,
+                    bypassed=bypassed,
+                )
+
+            verdicts: List[str] = []
+            layers: List[Optional[str]] = []
+            confidences: List[float] = []
+            for _ in range(samples):
+                ctx = await self._pipeline.process(
+                    payload.mutated, self._session_id
+                )
+                verdicts.append(ctx.verdict)
+                layers.append(ctx.violation_layer)
+                confidences.append(ctx.confidence)
+
+            analysis = analyze_verdicts(
+                verdicts,
+                instability_threshold=self._instability_threshold,
             )
             latency = (time.perf_counter() - start) * 1000
+            bypassed = analysis.final_verdict != "RED"
 
-            bypassed = ctx.verdict != "RED"
+            # layer/confidence от прогона с финальным вердиктом
+            match_idx = next(
+                (i for i, v in enumerate(verdicts) if v == analysis.final_verdict),
+                0,
+            )
 
             return RedTeamResult(
                 payload=payload,
-                actual_verdict=ctx.verdict,
-                actual_layer=ctx.violation_layer,
-                confidence=ctx.confidence,
+                actual_verdict=analysis.final_verdict,
+                actual_layer=layers[match_idx],
+                confidence=confidences[match_idx],
                 latency_ms=latency,
                 bypassed=bypassed,
+                judge_verdicts=analysis.verdicts,
+                judge_instability_rate=analysis.instability_rate,
+                quarantined=analysis.quarantined,
             )
         except Exception as e:
             latency = (time.perf_counter() - start) * 1000
+            # Инфраструктурный сбой (таймаут/сеть/краш pipeline) — это НЕ взлом.
+            # Раньше считалось bypassed=True и завышало статистику обходов защиты.
+            # Теперь отдельный признак errored: ни блок, ни обход.
+            logger.warning(f"[RED TEAM] payload {payload.id} errored: {type(e).__name__}: {e}")
             return RedTeamResult(
                 payload=payload,
                 actual_verdict="ERROR",
                 actual_layer=None,
                 confidence=0.0,
                 latency_ms=latency,
-                bypassed=True,
+                bypassed=False,
+                errored=True,
             )
 
     def _build_report(self, run_id: str, duration: float) -> RedTeamReport:
         """Собрать отчёт по результатам."""
         total = len(self._results)
-        blocked = sum(1 for r in self._results if not r.bypassed)
-        bypassed = total - blocked
+        # Ошибки (errored) — отдельный класс: ни блок, ни обход. Раньше они
+        # засчитывались как bypassed (bypassed=True) и завышали число обходов;
+        # теперь bypassed=False, но мы не должны считать их блоком.
+        blocked = sum(1 for r in self._results if not r.bypassed and not r.errored)
+        bypassed = sum(1 for r in self._results if r.bypassed)
+        # total - blocked - bypassed = количество ошибок (для прозрачности)
 
         latencies = [r.latency_ms for r in self._results]
         avg_latency = sum(latencies) / len(latencies) if latencies else 0
@@ -269,7 +340,20 @@ class RedTeamLoop:
 
         weaknesses = []
         for r in self._results:
-            if r.bypassed:
+            if r.quarantined:
+                weaknesses.append({
+                    "payload_id": r.payload.id,
+                    "category": r.payload.category.value,
+                    "type": "judge_instability",
+                    "judge_verdicts": r.judge_verdicts,
+                    "judge_instability_rate": r.judge_instability_rate,
+                    "actual_verdict": r.actual_verdict,
+                    "description": (
+                        f"Нестабильный guard: {r.judge_verdicts} "
+                        f"(instability={r.judge_instability_rate:.2f}) → карантин."
+                    ),
+                })
+            elif r.bypassed:
                 weaknesses.append({
                     "payload_id": r.payload.id,
                     "category": r.payload.category.value,
@@ -282,6 +366,12 @@ class RedTeamLoop:
                         f"Verdict: {r.actual_verdict} вместо RED."
                     ),
                 })
+
+        instability_rates = [r.judge_instability_rate for r in self._results if r.judge_verdicts]
+        avg_instability = (
+            sum(instability_rates) / len(instability_rates) if instability_rates else 0.0
+        )
+        quarantined_count = sum(1 for r in self._results if r.quarantined)
 
         return RedTeamReport(
             run_id=run_id,
@@ -296,6 +386,8 @@ class RedTeamLoop:
             by_mutation=by_mutation,
             weaknesses=weaknesses,
             duration_sec=duration,
+            judge_instability_rate=avg_instability,
+            quarantined_count=quarantined_count,
         )
 
     @property
