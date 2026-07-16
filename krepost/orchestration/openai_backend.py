@@ -181,9 +181,17 @@ class OpenAIGuardClient:
         self._transport = transport or _make_urllib_transport(base_url, api_key, timeout)
 
     def chat(self, model: str, messages: List[Dict[str, Any]],
-             format: Optional[str] = None) -> Dict[str, Any]:
+             format: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"model": model, "messages": messages}
         if format == "json":
-            payload["response_format"] = {"type": "json_object"}
+            # response_format: LM Studio 0.4+ принимает только json_schema/text,
+            # старые серверы — json_object. Пробуем text (guard-модели типа
+            # Qwen3Guard отдают нативный текстовый формат, JSON не нужен).
+            payload["response_format"] = {"type": "text"}
+        # Т9: проброс temperature из options (GuardClassifier передаёт
+        # options={"temperature":0} для детерминизма guard).
+        options = kwargs.get("options")
+        if isinstance(options, dict) and "temperature" in options:
+            payload["temperature"] = options["temperature"]
         resp = self._transport(payload)
         return {"message": {"content": _content(resp)}}
